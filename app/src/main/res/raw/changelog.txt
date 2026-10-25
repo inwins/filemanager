@@ -1,3 +1,8 @@
+v1.6.1
+- Added remote image and video thumbnails via the local streaming endpoint.
+- Tags and favorites now also work for remote SMB/SFTP paths.
+- Enabled cleartext for the loopback streaming endpoint.
+
 v1.6.0
 - SFTP private-key authentication and optional SHA-256 host fingerprint verification.
 - SMB guest/anonymous login and domain names.

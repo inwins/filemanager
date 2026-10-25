@@ -31,6 +31,7 @@ data class FileItem(
     val permissions: String? = null,
     val root: Boolean = false,
     val remote: Boolean = false,
+    val thumbnailUrl: String? = null,
 ) {
     val isHidden: Boolean get() = name.startsWith(".")
     val extension: String get() = name.substringAfterLast('.', "").lowercase()

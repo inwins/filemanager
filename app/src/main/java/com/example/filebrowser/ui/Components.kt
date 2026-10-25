@@ -149,8 +149,9 @@ fun fileVisual(item: FileItem): FileVisual {
 fun FileLeadingIcon(item: FileItem, size: Dp = 44.dp, modifier: Modifier = Modifier) {
     val visual = fileVisual(item)
     val context = LocalContext.current
-    val hasThumbnail = (item.isImage || item.isVideo) && !item.remote &&
-        (item.path.isNotBlank() || item.contentUri != null)
+    val hasThumbnail = item.thumbnailUrl != null ||
+        ((item.isImage || item.isVideo) && !item.remote &&
+            (item.path.isNotBlank() || item.contentUri != null))
     if (hasThumbnail) {
         Box(
             modifier
@@ -161,7 +162,7 @@ fun FileLeadingIcon(item: FileItem, size: Dp = 44.dp, modifier: Modifier = Modif
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(item.path.ifBlank { item.contentUri })
+                    .data(item.thumbnailUrl ?: item.path.ifBlank { item.contentUri })
                     .videoFrameMillis(1000)
                     .build(),
                 contentDescription = null,
@@ -327,12 +328,13 @@ fun FileGridItem(
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
             contentAlignment = Alignment.Center,
         ) {
-            if ((item.isImage || item.isVideo) && !item.remote &&
-                (item.path.isNotBlank() || item.contentUri != null)
+            if (item.thumbnailUrl != null ||
+                ((item.isImage || item.isVideo) && !item.remote &&
+                    (item.path.isNotBlank() || item.contentUri != null))
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
-                        .data(item.path.ifBlank { item.contentUri })
+                        .data(item.thumbnailUrl ?: item.path.ifBlank { item.contentUri })
                         .videoFrameMillis(1000)
                         .build(),
                     contentDescription = null,

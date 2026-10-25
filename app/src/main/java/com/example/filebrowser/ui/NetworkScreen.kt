@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -587,6 +588,8 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
     var showDeleteSelected by remember { mutableStateOf(false) }
     var showSelectionMore by remember { mutableStateOf(false) }
     var hashEntry by remember { mutableStateOf<RemoteEntry?>(null) }
+    var markerEntry by remember { mutableStateOf<RemoteEntry?>(null) }
+    var thumbUrls by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     fun goUp() {
         if (currentPath == "/") {
@@ -1072,6 +1075,31 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         }
     }
 
+    LaunchedEffect(entries) {
+        if (entries.isEmpty()) return@LaunchedEffect
+        val media = entries.filter {
+            !it.isDirectory && (it.toFileItem().isImage || it.toFileItem().isVideo)
+        }
+        if (media.isEmpty()) {
+            thumbUrls = emptyMap()
+            return@LaunchedEffect
+        }
+        val port = runCatching { RemoteStreamServer.start(context) }.getOrNull()
+        if (port == null) return@LaunchedEffect
+        thumbUrls = media.associate { entry ->
+            val item = entry.toFileItem()
+            val mime = item.mime ?: if (item.isVideo) "video/*" else "image/*"
+            val token = StreamRegistry.register(
+                profileId = profile.id,
+                remotePath = entry.path,
+                name = entry.name,
+                mime = mime,
+                size = entry.size,
+            )
+            entry.path to "http://127.0.0.1:$port/stream/$token"
+        }
+    }
+
     LaunchedEffect(profile.id, connectTick) {
         loading = true
         error = null
@@ -1215,7 +1243,8 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                     items(entries, key = { it.path }) { entry ->
                         val item = entry.toFileItem()
                         FileRow(
-                            item = item,
+                            item = item.copy(thumbnailUrl = thumbUrls[entry.path]),
+                            marker = state.markerForRemote(profile.id, entry.path),
                             showPath = false,
                             selectionMode = selected.isNotEmpty(),
                             selected = entry.path in selected,
@@ -1251,6 +1280,7 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
             onStream = { startStream(entry, copyUrl = false) },
             onCopyStream = { startStream(entry, copyUrl = true) },
             onHash = { hashEntry = entry },
+            onMarker = { markerEntry = entry },
             onDownload = { downloadToDevice(entry) },
             onRename = { renameEntry = entry },
             onProperties = { propertiesEntry = entry },
@@ -1289,6 +1319,16 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
 
     propertiesEntry?.let { entry ->
         RemotePropertiesDialog(profile, entry) { propertiesEntry = null }
+    }
+
+    markerEntry?.let { entry ->
+        val key = state.remoteMarkerKey(profile.id, entry.path)
+        MarkerDialog(
+            title = entry.name,
+            initial = state.markerFor(key),
+            onSave = { state.setMarker(key, it) },
+            onDismiss = { markerEntry = null },
+        )
     }
 
     hashEntry?.let { entry ->
@@ -1422,6 +1462,7 @@ private fun RemoteEntryActionsDialog(
     onStream: () -> Unit,
     onCopyStream: () -> Unit,
     onHash: () -> Unit,
+    onMarker: () -> Unit,
     onDownload: () -> Unit,
     onRename: () -> Unit,
     onProperties: () -> Unit,
@@ -1454,6 +1495,10 @@ private fun RemoteEntryActionsDialog(
                 RemoteActionRow(Icons.Filled.Fingerprint, stringResource(R.string.file_hash), enabled = !entry.isDirectory) {
                     onDismiss()
                     onHash()
+                }
+                RemoteActionRow(Icons.Filled.Tag, stringResource(R.string.marker_title)) {
+                    onDismiss()
+                    onMarker()
                 }
                 RemoteActionRow(Icons.Filled.Edit, stringResource(R.string.rename)) {
                     onDismiss()

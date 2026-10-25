@@ -248,6 +248,12 @@ class AppState(context: Context) {
 
     fun markerFor(path: String): FileMarker? = markers[path]
 
+    fun remoteMarkerKey(profileId: String, remotePath: String): String =
+        "remote://$profileId$remotePath"
+
+    fun markerForRemote(profileId: String, remotePath: String): FileMarker? =
+        markers[remoteMarkerKey(profileId, remotePath)]
+
     fun setMarker(path: String, marker: FileMarker?) {
         if (path.isBlank()) return
         markers = if (marker == null || marker.isEmpty) {
