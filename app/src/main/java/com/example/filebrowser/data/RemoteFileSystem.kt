@@ -23,10 +23,23 @@ import kotlin.math.abs
 
 class RemoteException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
+class RemoteCancelledException : IOException("Cancelled")
+
 interface RemoteFileSystem : Closeable {
     fun list(path: String): List<RemoteEntry>
-    fun download(path: String, dest: File, onBytes: (Long) -> Unit = {})
-    fun upload(src: File, destPath: String, onBytes: (Long) -> Unit = {})
+    fun download(
+        path: String,
+        dest: File,
+        totalSize: Long = -1L,
+        onBytes: (Long) -> Unit = {},
+        shouldContinue: () -> Boolean = { true },
+    )
+    fun upload(
+        src: File,
+        destPath: String,
+        onBytes: (Long) -> Unit = {},
+        shouldContinue: () -> Boolean = { true },
+    )
     fun mkdir(path: String)
     fun delete(path: String, isDirectory: Boolean)
     fun rename(oldPath: String, newPath: String)
@@ -111,7 +124,13 @@ class SmbRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSystem
         }.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
     }
 
-    override fun download(path: String, dest: File, onBytes: (Long) -> Unit) {
+    override fun download(
+        path: String,
+        dest: File,
+        totalSize: Long,
+        onBytes: (Long) -> Unit,
+        shouldContinue: () -> Boolean,
+    ) {
         try {
             val file = share.openFile(
                 toSmb(path),
@@ -122,15 +141,32 @@ class SmbRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSystem
                 null,
             )
             file.use {
-                FileOutputStream(dest).use { output -> it.read(output) }
+                FileOutputStream(dest).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var offset = 0L
+                    while (totalSize <= 0L || offset < totalSize) {
+                        if (!shouldContinue()) throw RemoteCancelledException()
+                        val read = it.read(buffer, offset)
+                        if (read <= 0) break
+                        output.write(buffer, 0, read)
+                        offset += read
+                        onBytes(offset)
+                    }
+                }
             }
-            onBytes(dest.length())
+        } catch (error: RemoteCancelledException) {
+            throw error
         } catch (error: Exception) {
             throw RemoteException(error.message ?: "SMB download failed", error)
         }
     }
 
-    override fun upload(src: File, destPath: String, onBytes: (Long) -> Unit) {
+    override fun upload(
+        src: File,
+        destPath: String,
+        onBytes: (Long) -> Unit,
+        shouldContinue: () -> Boolean,
+    ) {
         try {
             val file = share.openFile(
                 toSmb(destPath),
@@ -145,6 +181,7 @@ class SmbRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSystem
                     val buffer = ByteArray(64 * 1024)
                     var offset = 0L
                     while (true) {
+                        if (!shouldContinue()) throw RemoteCancelledException()
                         val read = input.read(buffer)
                         if (read <= 0) break
                         var written = 0
@@ -154,10 +191,12 @@ class SmbRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSystem
                             written += count.toInt()
                         }
                         offset += read
-                        onBytes(read.toLong())
+                        onBytes(offset)
                     }
                 }
             }
+        } catch (error: RemoteCancelledException) {
+            throw error
         } catch (error: Exception) {
             throw RemoteException(error.message ?: "SMB upload failed", error)
         }
@@ -273,21 +312,39 @@ class SftpRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSyste
         }
     }
 
-    override fun download(path: String, dest: File, onBytes: (Long) -> Unit) {
+    override fun download(
+        path: String,
+        dest: File,
+        totalSize: Long,
+        onBytes: (Long) -> Unit,
+        shouldContinue: () -> Boolean,
+    ) {
         try {
-            FileOutputStream(dest).use { output -> channel.get(path, output) }
-            onBytes(dest.length())
+            FileOutputStream(dest).use { raw ->
+                val output = ProgressOutputStream(raw, onBytes, shouldContinue)
+                channel.get(path, output)
+                output.flush()
+            }
+        } catch (error: RemoteCancelledException) {
+            throw error
         } catch (error: Exception) {
             throw RemoteException(error.message ?: "SFTP download failed", error)
         }
     }
 
-    override fun upload(src: File, destPath: String, onBytes: (Long) -> Unit) {
+    override fun upload(
+        src: File,
+        destPath: String,
+        onBytes: (Long) -> Unit,
+        shouldContinue: () -> Boolean,
+    ) {
         try {
-            FileInputStream(src).use { input ->
+            FileInputStream(src).use { raw ->
+                val input = ProgressInputStream(raw, onBytes, shouldContinue)
                 channel.put(input, destPath)
             }
-            onBytes(src.length())
+        } catch (error: RemoteCancelledException) {
+            throw error
         } catch (error: Exception) {
             throw RemoteException(error.message ?: "SFTP upload failed", error)
         }
@@ -341,5 +398,53 @@ class SftpRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSyste
     override fun close() {
         runCatching { channel.disconnect() }
         runCatching { session.disconnect() }
+    }
+}
+
+
+private class ProgressOutputStream(
+    out: java.io.OutputStream,
+    private val onBytes: (Long) -> Unit,
+    private val shouldContinue: () -> Boolean,
+) : java.io.FilterOutputStream(out) {
+    private var copied = 0L
+
+    override fun write(b: Int) {
+        write(byteArrayOf(b.toByte()), 0, 1)
+    }
+
+    override fun write(b: ByteArray, off: Int, len: Int) {
+        if (!shouldContinue()) throw RemoteCancelledException()
+        out.write(b, off, len)
+        copied += len
+        onBytes(copied)
+    }
+}
+
+private class ProgressInputStream(
+    input: java.io.InputStream,
+    private val onBytes: (Long) -> Unit,
+    private val shouldContinue: () -> Boolean,
+) : java.io.FilterInputStream(input) {
+    private var copied = 0L
+
+    override fun read(): Int {
+        if (!shouldContinue()) throw RemoteCancelledException()
+        val value = super.read()
+        if (value >= 0) {
+            copied++
+            onBytes(copied)
+        }
+        return value
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (!shouldContinue()) throw RemoteCancelledException()
+        val read = super.read(b, off, len)
+        if (read > 0) {
+            copied += read
+            onBytes(copied)
+        }
+        return read
     }
 }

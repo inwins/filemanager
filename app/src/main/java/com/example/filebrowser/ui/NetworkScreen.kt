@@ -50,6 +50,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -80,6 +81,7 @@ import com.example.filebrowser.AppState
 import com.example.filebrowser.R
 import com.example.filebrowser.data.FileItem
 import com.example.filebrowser.data.RemoteEntry
+import com.example.filebrowser.data.RemoteCancelledException
 import com.example.filebrowser.data.RemoteFileSystem
 import com.example.filebrowser.data.RemoteFileSystems
 import com.example.filebrowser.data.RemoteProfile
@@ -87,9 +89,21 @@ import com.example.filebrowser.data.RemoteProtocol
 import com.example.filebrowser.util.Format
 import java.io.File
 import java.util.UUID
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private data class RemoteTask(
+    val title: String,
+    val total: Long,
+    val done: Long,
+    val detail: String,
+    val cancellable: Boolean,
+) {
+    val fraction: Float?
+        get() = if (total > 0) (done.toDouble() / total).toFloat().coerceIn(0f, 1f) else null
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -429,7 +443,8 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
     var error by remember { mutableStateOf<String?>(null) }
     var connectTick by remember { mutableIntStateOf(0) }
     var refreshTick by remember { mutableIntStateOf(0) }
-    var busyText by remember { mutableStateOf<String?>(null) }
+    var task by remember { mutableStateOf<RemoteTask?>(null) }
+    var cancelRequested by remember { mutableStateOf(false) }
     var menuEntry by remember { mutableStateOf<RemoteEntry?>(null) }
     var renameEntry by remember { mutableStateOf<RemoteEntry?>(null) }
     var deleteEntry by remember { mutableStateOf<RemoteEntry?>(null) }
@@ -446,34 +461,83 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
 
     BackHandler { goUp() }
 
+    fun beginTask(title: String, total: Long, detail: String, cancellable: Boolean = total > 0) {
+        cancelRequested = false
+        task = RemoteTask(title, total, 0, detail, cancellable)
+    }
+
+    fun finishTask(message: String?) {
+        task = null
+        cancelRequested = false
+        if (message != null) state.showMessage(message)
+    }
+
     val uploadLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         val system = fs
         if (system != null && uris.isNotEmpty()) {
             scope.launch {
-                busyText = context.getString(R.string.network_uploading)
-                var success = 0
+                beginTask(context.getString(R.string.network_uploading), 0, context.getString(R.string.network_preparing), cancellable = true)
+                val tempDir = File(context.cacheDir, "remote_upload").apply { mkdirs() }
+                val prepared = mutableListOf<Pair<File, String>>()
                 withContext(Dispatchers.IO) {
                     for (uri in uris) {
+                        if (cancelRequested) break
                         val original = state.repository.displayName(uri)
                             ?: "upload_${System.currentTimeMillis()}"
-                        val tempDir = File(context.cacheDir, "remote_upload").apply { mkdirs() }
                         val temp = File(tempDir, "${System.currentTimeMillis()}_$original")
                         if (state.repository.copyUriToFile(uri, temp)) {
-                            val name = uniqueRemoteName(system, currentPath, original)
-                            val ok = runCatching {
-                                system.upload(temp, RemoteFileSystems.join(currentPath, name))
-                            }.isSuccess
-                            if (ok) success++
-                            temp.delete()
+                            prepared.add(temp to original)
                         }
                     }
                 }
-                busyText = null
+                if (cancelRequested) {
+                    prepared.forEach { it.first.delete() }
+                    finishTask(context.getString(R.string.operation_cancelled))
+                    return@launch
+                }
+                if (prepared.isEmpty()) {
+                    finishTask(context.getString(R.string.network_upload_failed))
+                    return@launch
+                }
+                val total = prepared.sumOf { it.first.length() }
+                task = task?.copy(total = total)
+                var success = 0
+                var uploaded = 0L
+                withContext(Dispatchers.IO) {
+                    for ((temp, original) in prepared) {
+                        if (cancelRequested) break
+                        task = task?.copy(detail = original)
+                        val base = uploaded
+                        val destName = uniqueRemoteName(system, currentPath, original)
+                        val ok = try {
+                            system.upload(
+                                temp,
+                                RemoteFileSystems.join(currentPath, destName),
+                                onBytes = { done ->
+                                    task = task?.copy(done = (base + done).coerceAtMost(total))
+                                },
+                                shouldContinue = { !cancelRequested },
+                            )
+                            true
+                        } catch (_: RemoteCancelledException) {
+                            false
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (ok) success++
+                        uploaded += temp.length()
+                        task = task?.copy(done = uploaded.coerceAtMost(total))
+                        temp.delete()
+                    }
+                }
+                prepared.forEach { it.first.delete() }
+                val cancelled = cancelRequested
                 refreshTick++
-                state.showMessage(
-                    context.getString(
+                finishTask(
+                    if (cancelled) context.getString(R.string.operation_cancelled)
+                    else context.getString(
                         if (success > 0) R.string.network_uploaded else R.string.network_upload_failed,
                         success,
                     )
@@ -490,56 +554,114 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         val system = fs ?: return
         val isAudio = entry.toFileItem().isAudio
         scope.launch {
-            busyText = context.getString(R.string.network_downloading)
+            beginTask(context.getString(R.string.network_downloading), entry.size, entry.name)
             val cacheDir = File(
                 File(context.cacheDir, "remote/${profile.id.hashCode()}"),
-                kotlin.math.abs(entry.path.hashCode()).toString(),
+                abs(entry.path.hashCode()).toString(),
             ).apply { mkdirs() }
             val dest = File(cacheDir, entry.name)
+            var lastReported = -1L
+            val step = if (entry.size > 0) (entry.size / 100).coerceAtLeast(32 * 1024) else 64 * 1024
             val ok = withContext(Dispatchers.IO) {
-                runCatching { system.download(entry.path, dest) }.isSuccess
+                try {
+                    system.download(
+                        entry.path,
+                        dest,
+                        entry.size,
+                        onBytes = { done ->
+                            if (done - lastReported >= step || done >= entry.size) {
+                                lastReported = done
+                                task = task?.copy(done = done)
+                            }
+                        },
+                        shouldContinue = { !cancelRequested },
+                    )
+                    true
+                } catch (_: RemoteCancelledException) {
+                    false
+                } catch (_: Exception) {
+                    false
+                }
             }
-            busyText = null
-            if (ok) {
-                if (isAudio) {
-                    val base = entry.name.substringBeforeLast('.')
-                    val parentPath = RemoteFileSystems.parent(entry.path)
-                    val lrc = runCatching {
-                        system.list(parentPath).firstOrNull {
-                            !it.isDirectory &&
-                                it.name.endsWith(".lrc", ignoreCase = true) &&
-                                it.name.substringBeforeLast('.').equals(base, ignoreCase = true)
-                        }
-                    }.getOrNull()
-                    if (lrc != null) {
-                        withContext(Dispatchers.IO) {
-                            runCatching { system.download(lrc.path, File(cacheDir, "$base.lrc")) }
+            val cancelled = cancelRequested
+            if (!ok || cancelled) {
+                dest.delete()
+                finishTask(
+                    context.getString(
+                        if (cancelled) R.string.operation_cancelled else R.string.network_download_failed
+                    )
+                )
+                return@launch
+            }
+            if (isAudio) {
+                val base = entry.name.substringBeforeLast('.')
+                val parentPath = RemoteFileSystems.parent(entry.path)
+                val lrc = runCatching {
+                    system.list(parentPath).firstOrNull {
+                        !it.isDirectory &&
+                            it.name.endsWith(".lrc", ignoreCase = true) &&
+                            it.name.substringBeforeLast('.').equals(base, ignoreCase = true)
+                    }
+                }.getOrNull()
+                if (lrc != null && !cancelRequested) {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            system.download(
+                                lrc.path,
+                                File(cacheDir, "$base.lrc"),
+                                -1L,
+                                shouldContinue = { !cancelRequested },
+                            )
                         }
                     }
                 }
-                val local = state.repository.toItem(dest).copy(name = entry.name)
-                state.openItem(local, addToRecent = false)
-            } else {
-                state.showMessage(context.getString(R.string.network_download_failed))
             }
+            finishTask(null)
+            val local = state.repository.toItem(dest).copy(name = entry.name)
+            state.openItem(local, addToRecent = false)
         }
     }
 
     fun downloadToDevice(entry: RemoteEntry) {
         val system = fs ?: return
         scope.launch {
-            busyText = context.getString(R.string.network_downloading)
+            beginTask(context.getString(R.string.network_downloading), entry.size, entry.name)
             val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val dest = com.example.filebrowser.data.FileOps.uniqueFile(File(dir, entry.name))
+            var lastReported = -1L
+            val step = if (entry.size > 0) (entry.size / 100).coerceAtLeast(32 * 1024) else 64 * 1024
             val ok = withContext(Dispatchers.IO) {
-                runCatching { system.download(entry.path, dest) }.isSuccess
+                try {
+                    system.download(
+                        entry.path,
+                        dest,
+                        entry.size,
+                        onBytes = { done ->
+                            if (done - lastReported >= step || done >= entry.size) {
+                                lastReported = done
+                                task = task?.copy(done = done)
+                            }
+                        },
+                        shouldContinue = { !cancelRequested },
+                    )
+                    true
+                } catch (_: RemoteCancelledException) {
+                    false
+                } catch (_: Exception) {
+                    false
+                }
             }
-            busyText = null
-            if (ok) {
+            val cancelled = cancelRequested
+            if (ok && !cancelled) {
                 state.repository.scan(listOf(dest))
-                state.showMessage(context.getString(R.string.network_downloaded, dest.name))
+                finishTask(context.getString(R.string.network_downloaded, dest.name))
             } else {
-                state.showMessage(context.getString(R.string.network_download_failed))
+                dest.delete()
+                finishTask(
+                    context.getString(
+                        if (cancelled) R.string.operation_cancelled else R.string.network_download_failed
+                    )
+                )
             }
         }
     }
@@ -547,15 +669,14 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
     fun createFolder(name: String) {
         val system = fs ?: return
         scope.launch {
-            busyText = context.getString(R.string.processing)
+            beginTask(context.getString(R.string.processing), 0, name, cancellable = false)
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     system.mkdir(RemoteFileSystems.join(currentPath, name))
                 }.isSuccess
             }
-            busyText = null
             refreshTick++
-            state.showMessage(
+            finishTask(
                 context.getString(
                     if (ok) R.string.network_folder_created else R.string.network_mkdir_failed
                 )
@@ -566,13 +687,12 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
     fun deleteRemote(entry: RemoteEntry) {
         val system = fs ?: return
         scope.launch {
-            busyText = context.getString(R.string.delete_progress)
+            beginTask(context.getString(R.string.delete_progress), 0, entry.name, cancellable = false)
             val ok = withContext(Dispatchers.IO) {
                 runCatching { system.delete(entry.path, entry.isDirectory) }.isSuccess
             }
-            busyText = null
             refreshTick++
-            state.showMessage(
+            finishTask(
                 context.getString(if (ok) R.string.network_deleted else R.string.network_delete_failed)
             )
         }
@@ -582,13 +702,12 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         val system = fs ?: return
         val target = RemoteFileSystems.join(RemoteFileSystems.parent(entry.path), newName)
         scope.launch {
-            busyText = context.getString(R.string.rename_progress)
+            beginTask(context.getString(R.string.rename_progress), 0, entry.name, cancellable = false)
             val ok = withContext(Dispatchers.IO) {
                 runCatching { system.rename(entry.path, target) }.isSuccess
             }
-            busyText = null
             refreshTick++
-            state.showMessage(
+            finishTask(
                 context.getString(if (ok) R.string.network_renamed else R.string.network_rename_failed)
             )
         }
@@ -715,7 +834,9 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                             selected = false,
                             selectionMode = false,
                             showPath = false,
-                            onClick = { openEntry(entry) },
+                            onClick = {
+                                if (entry.isDirectory) currentPath = entry.path else menuEntry = entry
+                            },
                             onLongClick = { menuEntry = entry },
                         )
                     }
@@ -725,38 +846,15 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
     }
 
     menuEntry?.let { entry ->
-        ActionSheet(
-            title = entry.name,
-            actions = listOf(
-                SheetAction(
-                    label = stringResource(R.string.open),
-                    icon = Icons.Filled.Folder,
-                    enabled = entry.isDirectory,
-                    onClick = { openEntry(entry) },
-                ),
-                SheetAction(
-                    label = stringResource(R.string.network_download),
-                    icon = Icons.Filled.Download,
-                    enabled = !entry.isDirectory,
-                    onClick = { downloadToDevice(entry) },
-                ),
-                SheetAction(
-                    label = stringResource(R.string.rename),
-                    icon = Icons.Filled.Edit,
-                    onClick = { renameEntry = entry },
-                ),
-                SheetAction(
-                    label = stringResource(R.string.properties),
-                    icon = Icons.Filled.Info,
-                    onClick = { propertiesEntry = entry },
-                ),
-                SheetAction(
-                    label = stringResource(R.string.delete),
-                    icon = Icons.Filled.Delete,
-                    destructive = true,
-                    onClick = { deleteEntry = entry },
-                ),
-            ),
+        RemoteEntryActionsDialog(
+            entry = entry,
+            onOpen = {
+                openEntry(entry)
+            },
+            onDownload = { downloadToDevice(entry) },
+            onRename = { renameEntry = entry },
+            onProperties = { propertiesEntry = entry },
+            onDelete = { deleteEntry = entry },
             onDismiss = { menuEntry = null },
         )
     }
@@ -793,21 +891,135 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         RemotePropertiesDialog(profile, entry) { propertiesEntry = null }
     }
 
-    busyText?.let { text ->
+    task?.let { current ->
         AlertDialog(
             onDismissRequest = {},
-            title = { Text(text) },
+            title = { Text(current.title) },
             text = {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
+                Column {
+                    if (current.detail.isNotBlank()) {
+                        Text(
+                            current.detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    val fraction = current.fraction
+                    if (fraction != null) {
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    if (current.total > 0) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "${Format.size(current.done)} / ${Format.size(current.total)} · " +
+                                "${(fraction ?: 0f).times(100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             },
-            confirmButton = {},
+            confirmButton = {
+                if (current.cancellable) {
+                    TextButton(onClick = {
+                        cancelRequested = true
+                        task = task?.copy(detail = context.getString(R.string.operation_cancelling))
+                    }) {
+                        Text(stringResource(R.string.cancel_operation))
+                    }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun RemoteEntryActionsDialog(
+    entry: RemoteEntry,
+    onOpen: () -> Unit,
+    onDownload: () -> Unit,
+    onRename: () -> Unit,
+    onProperties: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column {
+                RemoteActionRow(Icons.Filled.Folder, stringResource(R.string.open)) {
+                    onDismiss()
+                    onOpen()
+                }
+                RemoteActionRow(Icons.Filled.Download, stringResource(R.string.network_download), enabled = !entry.isDirectory) {
+                    onDismiss()
+                    onDownload()
+                }
+                RemoteActionRow(Icons.Filled.Edit, stringResource(R.string.rename)) {
+                    onDismiss()
+                    onRename()
+                }
+                RemoteActionRow(Icons.Filled.Info, stringResource(R.string.properties)) {
+                    onDismiss()
+                    onProperties()
+                }
+                RemoteActionRow(
+                    Icons.Filled.Delete,
+                    stringResource(R.string.delete),
+                    destructive = true,
+                ) {
+                    onDismiss()
+                    onDelete()
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+        },
+    )
+}
+
+@Composable
+private fun RemoteActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = when {
+                !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                destructive -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = when {
+                !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                destructive -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurface
+            },
         )
     }
 }

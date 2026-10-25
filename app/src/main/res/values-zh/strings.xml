@@ -314,4 +314,7 @@
     <string name="lyrics_not_found">未找到歌词</string>
     <string name="lyrics_hint">请将同名的 .lrc 歌词文件放在音频文件旁边。</string>
     <string name="lyrics_loading">正在加载歌词…</string>
+
+    <string name="network_preparing">正在准备…</string>
+    <string name="operation_cancelling">正在取消…</string>
 </resources>

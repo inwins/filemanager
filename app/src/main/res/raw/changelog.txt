@@ -1,3 +1,8 @@
+v1.4.1
+- Tapping a remote file now opens an action dialog instead of downloading immediately, preventing accidental downloads.
+- Added a determinate progress bar with percentage for SMB/SFTP downloads and uploads.
+- Remote downloads and uploads can be cancelled; partial files are removed.
+
 v1.4.0
 - Added lyrics display for audio playback.
 - Reads matching .lrc files next to the audio file; supports synced timestamps, current-line highlighting, auto-scroll, metadata tags and offset.
