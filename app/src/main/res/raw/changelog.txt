@@ -1,3 +1,9 @@
+v1.4.0
+- Added lyrics display for audio playback.
+- Reads matching .lrc files next to the audio file; supports synced timestamps, current-line highlighting, auto-scroll, metadata tags and offset.
+- Works for local, root, SMB and SFTP audio; remote .lrc files are fetched alongside the cached audio.
+- Tap the lyrics icon to toggle between cover art and full lyrics. The current line also appears on the cover screen.
+
 v1.3.1
 - Fixed the mini player bar overlapping the system navigation buttons after leaving the audio player.
 - The audio player and mini player now respect the bottom system inset.

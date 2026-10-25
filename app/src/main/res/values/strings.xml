@@ -309,4 +309,9 @@
     <string name="audio_next">Next</string>
     <string name="audio_close">Close player</string>
     <string name="audio_no_track">No audio track selected</string>
+
+    <string name="lyrics">Lyrics</string>
+    <string name="lyrics_not_found">No lyrics found</string>
+    <string name="lyrics_hint">Put a matching .lrc file next to the audio file.</string>
+    <string name="lyrics_loading">Loading lyrics…</string>
 </resources>

@@ -146,6 +146,16 @@ class AppState(context: Context) {
             message = appContext.getString(R.string.root_copy_failed)
             return null
         }
+        if (item.isAudio) {
+            val parent = File(item.path).parent
+            val base = item.name.substringBeforeLast('.')
+            if (parent != null) {
+                RootShell.copyToLocal(
+                    File(parent, "$base.lrc").path,
+                    File(cacheDir, "$base.lrc").path,
+                )
+            }
+        }
         if (!rootPreviewHintShown) {
             rootPreviewHintShown = true
             message = appContext.getString(R.string.root_preview_hint)

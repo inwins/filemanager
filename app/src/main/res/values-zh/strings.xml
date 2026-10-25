@@ -309,4 +309,9 @@
     <string name="audio_next">下一首</string>
     <string name="audio_close">关闭播放器</string>
     <string name="audio_no_track">未选择音频</string>
+
+    <string name="lyrics">歌词</string>
+    <string name="lyrics_not_found">未找到歌词</string>
+    <string name="lyrics_hint">请将同名的 .lrc 歌词文件放在音频文件旁边。</string>
+    <string name="lyrics_loading">正在加载歌词…</string>
 </resources>

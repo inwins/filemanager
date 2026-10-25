@@ -17,7 +17,11 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.example.filebrowser.util.LrcParser
+import com.example.filebrowser.util.Lyrics
 import java.io.File
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -63,9 +67,14 @@ class AudioPlayer(
         private set
     var artwork by mutableStateOf<Bitmap?>(null)
         private set
+    var lyrics by mutableStateOf<Lyrics?>(null)
+        private set
+    var lyricsLoading by mutableStateOf(false)
+        private set
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var metadataJob: Job? = null
+    private var lyricsJob: Job? = null
     private var ticker: Job? = null
 
     init {
@@ -84,7 +93,10 @@ class AudioPlayer(
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 currentIndex = exo.currentMediaItemIndex
                 current = queue.getOrNull(currentIndex)
-                current?.let { loadMetadata(it) }
+                current?.let {
+                    loadMetadata(it)
+                    loadLyrics(it)
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -132,6 +144,7 @@ class AudioPlayer(
         exo.prepare()
         exo.playWhenReady = true
         loadMetadata(playable[index])
+        loadLyrics(playable[index])
     }
 
     fun toggle() {
@@ -177,7 +190,46 @@ class AudioPlayer(
         artist = ""
         album = ""
         artwork = null
+        lyrics = null
+        lyricsLoading = false
         metadataJob?.cancel()
+        lyricsJob?.cancel()
+    }
+
+    private fun loadLyrics(item: FileItem) {
+        lyricsJob?.cancel()
+        lyrics = null
+        lyricsLoading = true
+        val audioFile = if (item.path.isNotBlank()) File(item.path) else null
+        if (audioFile == null) {
+            lyricsLoading = false
+            return
+        }
+        lyricsJob = scope.launch(Dispatchers.IO) {
+            val file = findLyricsFile(audioFile)
+            if (file != null) {
+                val parsed = runCatching { LrcParser.parse(readLyricsText(file)) }.getOrNull()
+                lyrics = parsed
+            }
+            lyricsLoading = false
+        }
+    }
+
+    private fun findLyricsFile(audio: File): File? {
+        val directory = audio.parentFile ?: return null
+        val base = audio.nameWithoutExtension
+        return directory.listFiles()?.firstOrNull { candidate ->
+            !candidate.isDirectory &&
+                candidate.extension.equals("lrc", ignoreCase = true) &&
+                candidate.nameWithoutExtension.equals(base, ignoreCase = true)
+        }
+    }
+
+    private fun readLyricsText(file: File): String {
+        val bytes = file.readBytes()
+        val utf8 = String(bytes, StandardCharsets.UTF_8)
+        val invalid = utf8.count { it == '\uFFFD' }.toDouble() / utf8.length.coerceAtLeast(1)
+        return if (invalid > 0.01) String(bytes, Charset.forName("GBK")) else utf8
     }
 
     private fun loadMetadata(item: FileItem) {

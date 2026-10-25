@@ -488,6 +488,7 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
             return
         }
         val system = fs ?: return
+        val isAudio = entry.toFileItem().isAudio
         scope.launch {
             busyText = context.getString(R.string.network_downloading)
             val cacheDir = File(
@@ -500,6 +501,22 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
             }
             busyText = null
             if (ok) {
+                if (isAudio) {
+                    val base = entry.name.substringBeforeLast('.')
+                    val parentPath = RemoteFileSystems.parent(entry.path)
+                    val lrc = runCatching {
+                        system.list(parentPath).firstOrNull {
+                            !it.isDirectory &&
+                                it.name.endsWith(".lrc", ignoreCase = true) &&
+                                it.name.substringBeforeLast('.').equals(base, ignoreCase = true)
+                        }
+                    }.getOrNull()
+                    if (lrc != null) {
+                        withContext(Dispatchers.IO) {
+                            runCatching { system.download(lrc.path, File(cacheDir, "$base.lrc")) }
+                        }
+                    }
+                }
                 val local = state.repository.toItem(dest).copy(name = entry.name)
                 state.openItem(local, addToRecent = false)
             } else {
