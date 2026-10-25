@@ -1,0 +1,18 @@
+v1.1.0
+- Added a TXT reader with automatic chapter detection for "Chapter N",
+  "第X章 / 第X卷 / 第X节", prologue/epilogue and Markdown headings.
+- Added a chapter list with jump-to-chapter navigation.
+- Reading progress is saved automatically and restored when a book is reopened.
+- Added per-book bookmarks: add, jump and delete.
+- Added text-to-speech: start from the current page, pause/resume, stop,
+  automatic next chapter and adjustable speech rate.
+- Added reading settings: font size, line spacing and paper / sepia / eye-care /
+  dark themes.
+- Open the text editor directly from the reader.
+- Improved text encoding detection (UTF-8 / GBK) and large-file support up to 30 MB.
+- Added an in-app changelog.
+
+v1.0.0
+- First release: storage dashboard, file browser, categories, search,
+  copy/cut/paste, rename, delete, ZIP compress/extract, image viewer,
+  text editor, app management, storage analysis, bookmarks and recent files.
