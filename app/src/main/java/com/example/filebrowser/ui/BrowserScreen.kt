@@ -20,9 +20,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FolderZip
@@ -31,6 +33,7 @@ import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Storage
@@ -62,6 +65,7 @@ import com.example.filebrowser.data.ClipboardOp
 import com.example.filebrowser.data.FileItem
 import com.example.filebrowser.data.ViewMode
 import java.io.File
+import java.io.FileInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -81,6 +85,10 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
     var showRename by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var propertiesItem by remember { mutableStateOf<FileItem?>(null) }
+    var hashItem by remember { mutableStateOf<FileItem?>(null) }
+    var markerItem by remember { mutableStateOf<FileItem?>(null) }
+    var zipItems by remember { mutableStateOf<List<FileItem>>(emptyList()) }
+    var showZipOptions by remember { mutableStateOf(false) }
 
     LaunchedEffect(
         screen.path,
@@ -197,6 +205,7 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
                                 item = item,
                                 selected = item.path in selected,
                                 selectionMode = selected.isNotEmpty(),
+                                marker = state.markerFor(item.path),
                                 onClick = {
                                     if (selected.isNotEmpty()) {
                                         selected = toggle(selected, item.path)
@@ -224,6 +233,7 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
                                 item = item,
                                 selected = item.path in selected,
                                 selectionMode = selected.isNotEmpty(),
+                                marker = state.markerFor(item.path),
                                 onClick = {
                                     if (selected.isNotEmpty()) {
                                         selected = toggle(selected, item.path)
@@ -330,6 +340,11 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
                     onClick = { state.navigate(Screen.Analyzer(screen.path)) },
                 ),
                 SheetAction(
+                    label = stringResource(R.string.cleaner_title),
+                    icon = Icons.Filled.CleaningServices,
+                    onClick = { state.navigate(Screen.Cleaner(screen.path)) },
+                ),
+                SheetAction(
                     label = stringResource(R.string.refresh),
                     icon = Icons.Filled.Refresh,
                     onClick = { state.refresh() },
@@ -360,7 +375,10 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
                     label = stringResource(R.string.zip),
                     icon = Icons.Filled.FolderZip,
                     enabled = selectedItems.isNotEmpty(),
-                    onClick = { state.zip(selectedItems, screen.path) },
+                    onClick = {
+                        zipItems = selectedItems
+                        showZipOptions = true
+                    },
                 ),
                 SheetAction(
                     label = stringResource(R.string.unzip),
@@ -379,6 +397,18 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
                     icon = Icons.Filled.OpenInNew,
                     enabled = single != null && !single.isDirectory,
                     onClick = { single?.let { state.openWith(it) } },
+                ),
+                SheetAction(
+                    label = stringResource(R.string.file_hash),
+                    icon = Icons.Filled.Fingerprint,
+                    enabled = single != null && !single.isDirectory && single.path.isNotBlank(),
+                    onClick = { hashItem = single },
+                ),
+                SheetAction(
+                    label = stringResource(R.string.marker_title),
+                    icon = Icons.Filled.Tag,
+                    enabled = single != null,
+                    onClick = { markerItem = single },
                 ),
                 SheetAction(
                     label = stringResource(R.string.invert_selection),
@@ -450,6 +480,36 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
 
     propertiesItem?.let { item ->
         PropertiesDialog(item, state.repository) { propertiesItem = null }
+    }
+
+    hashItem?.let { item ->
+        if (item.path.isNotBlank()) {
+            HashDialog(
+                name = item.name,
+                totalBytes = item.size,
+                openStream = { FileInputStream(File(item.path)) },
+                onDismiss = { hashItem = null },
+            )
+        }
+    }
+
+    markerItem?.let { item ->
+        MarkerDialog(
+            title = item.name,
+            initial = state.markerFor(item.path),
+            onSave = { state.setMarker(item.path, it) },
+            onDismiss = { markerItem = null },
+        )
+    }
+
+    if (showZipOptions) {
+        ZipOptionsDialog(
+            defaultName = if (zipItems.size == 1) zipItems.first().name.substringBeforeLast('.') + ".zip" else "archive.zip",
+            onConfirm = { name, password, splitMb ->
+                state.zipWithOptions(zipItems, screen.path, name, password, splitMb)
+            },
+            onDismiss = { showZipOptions = false },
+        )
     }
 }
 

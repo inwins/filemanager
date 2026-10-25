@@ -1,6 +1,7 @@
 package com.example.filebrowser.data
 
 enum class RemoteProtocol { SMB, SFTP }
+enum class RemoteAuthMethod { PASSWORD, KEY }
 
 data class RemoteProfile(
     val id: String,
@@ -13,6 +14,11 @@ data class RemoteProfile(
     val domain: String = "",
     val share: String = "",
     val rootPath: String = "/",
+    val authMethod: RemoteAuthMethod = RemoteAuthMethod.PASSWORD,
+    val privateKeyPath: String = "",
+    val keyPassphrase: String = "",
+    val hostKeyFingerprint: String = "",
+    val guest: Boolean = false,
 )
 
 data class RemoteClipboard(

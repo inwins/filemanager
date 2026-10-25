@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.FolderOpen
@@ -144,6 +145,14 @@ fun SettingsScreen(state: AppState) {
                     subtitle = if (state.permissionGranted) stringResource(R.string.granted)
                     else stringResource(R.string.not_granted),
                     onClick = { state.requestPermission() },
+                )
+            }
+            item {
+                SettingsItem(
+                    icon = Icons.Filled.CleaningServices,
+                    title = stringResource(R.string.cleaner_title),
+                    subtitle = state.repository.defaultRoot(),
+                    onClick = { state.navigate(Screen.Cleaner(state.repository.defaultRoot())) },
                 )
             }
             item {

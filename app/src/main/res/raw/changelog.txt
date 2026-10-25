@@ -1,3 +1,14 @@
+v1.6.0
+- SFTP private-key authentication and optional SHA-256 host fingerprint verification.
+- SMB guest/anonymous login and domain names.
+- Archive preview and extraction for ZIP, 7Z, RAR, TAR, TAR.GZ and GZ.
+- AES-encrypted ZIP creation and extraction; multi-volume ZIP creation.
+- Storage cleaner: duplicate files, large files and cache cleaning.
+- File hashes: MD5, SHA-1 and SHA-256.
+- Tags, favorites, colors and pinned items on the Home screen.
+- Local image and video thumbnails.
+- Remote thumbnails are not implemented yet; remote entries use type icons.
+
 v1.5.0
 - Added multi-select in remote SMB/SFTP directories with copy, cut and delete.
 - Remote clipboard can paste to another remote folder or to local storage; local files can also be pasted into remote folders.

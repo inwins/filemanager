@@ -10,6 +10,9 @@ import com.hierynomus.smbj.connection.Connection
 import com.hierynomus.smbj.session.Session
 import com.hierynomus.smbj.share.DiskShare
 import com.jcraft.jsch.ChannelSftp
+import com.jcraft.jsch.HostKey
+import com.jcraft.jsch.HostKeyRepository
+import com.jcraft.jsch.JSchException
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session as SshSession
 import java.io.Closeable
@@ -18,6 +21,8 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.security.MessageDigest
+import java.util.Base64
 import java.util.EnumSet
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -91,10 +96,10 @@ class SmbRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSystem
                 .build()
             client = SMBClient(config)
             connection = client.connect(profile.host, profile.port)
-            val auth = if (profile.username.isBlank()) {
-                AuthenticationContext.anonymous()
-            } else {
-                AuthenticationContext(
+            val auth = when {
+                profile.guest -> AuthenticationContext.guest()
+                profile.username.isBlank() -> AuthenticationContext.anonymous()
+                else -> AuthenticationContext(
                     profile.username,
                     profile.password.toCharArray(),
                     profile.domain.ifBlank { null },
@@ -330,10 +335,25 @@ class SftpRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSyste
     init {
         try {
             val jsch = JSch()
+            val fingerprint = profile.hostKeyFingerprint.trim()
+            if (fingerprint.isNotBlank()) {
+                jsch.hostKeyRepository = FingerprintHostKeyRepository(fingerprint)
+            }
             session = jsch.getSession(profile.username, profile.host, profile.port)
-            session.setPassword(profile.password)
-            session.setConfig("StrictHostKeyChecking", "no")
-            session.setConfig("PreferredAuthentications", "password,keyboard-interactive")
+            if (profile.authMethod == RemoteAuthMethod.KEY) {
+                if (profile.privateKeyPath.isBlank()) {
+                    throw RemoteException("Private key not selected")
+                }
+                jsch.addIdentity(
+                    profile.privateKeyPath,
+                    profile.keyPassphrase.ifBlank { null },
+                )
+                session.setConfig("PreferredAuthentications", "publickey")
+            } else {
+                session.setPassword(profile.password)
+                session.setConfig("PreferredAuthentications", "password,keyboard-interactive")
+            }
+            session.setConfig("StrictHostKeyChecking", if (fingerprint.isBlank()) "no" else "yes")
             session.connect(20_000)
             channel = session.openChannel("sftp") as ChannelSftp
             channel.connect(20_000)
@@ -512,4 +532,36 @@ private class ProgressInputStream(
         }
         return read
     }
+}
+
+
+private class FingerprintHostKeyRepository(private val expected: String) : HostKeyRepository {
+    override fun check(host: String?, key: ByteArray?): Int {
+        if (key == null) return HostKeyRepository.NOT_INCLUDED
+        val digest = MessageDigest.getInstance("SHA-256").digest(key)
+        val actual = Base64.getEncoder().withoutPadding().encodeToString(digest)
+        return if (normalize(actual) == normalize(expected)) {
+            HostKeyRepository.OK
+        } else {
+            HostKeyRepository.NOT_INCLUDED
+        }
+    }
+
+    override fun add(hostkey: HostKey?, userinfo: com.jcraft.jsch.UserInfo?) = Unit
+
+    override fun remove(host: String?, type: String?) = Unit
+
+    override fun remove(host: String?, type: String?, key: ByteArray?) = Unit
+
+    override fun getKnownHostsRepositoryID(): String = "file-browser-fingerprint"
+
+    override fun getHostKey(): Array<HostKey> = emptyArray()
+
+    override fun getHostKey(host: String?, type: String?): Array<HostKey> = emptyArray()
+
+    private fun normalize(value: String): String =
+        value.trim()
+            .removePrefix("SHA256:")
+            .removeSuffix("=")
+            .replace("\n", "")
 }

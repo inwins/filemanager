@@ -326,4 +326,61 @@
     <string name="stream_url_copied">流媒体地址已复制</string>
     <string name="stream_start_failed">无法启动流媒体服务</string>
     <string name="stream_chooser">选择播放应用</string>
+
+    <string name="hash_title">文件哈希</string>
+    <string name="hash_md5">MD5</string>
+    <string name="hash_sha1">SHA-1</string>
+    <string name="hash_sha256">SHA-256</string>
+    <string name="hash_computing">正在计算…</string>
+    <string name="hash_failed">无法计算哈希</string>
+    <string name="file_hash">计算哈希</string>
+
+    <string name="archive_entries">%d 个条目</string>
+    <string name="archive_empty">压缩包为空</string>
+    <string name="archive_password">密码</string>
+    <string name="archive_password_optional">密码（可选）</string>
+    <string name="archive_extract_all">全部解压</string>
+    <string name="archive_extracting">正在解压…</string>
+    <string name="archive_extract_failed">解压失败，请检查密码。</string>
+    <string name="archive_extracted">已解压到 %1$s</string>
+    <string name="archive_extract_hint">解压到 %1$s</string>
+    <string name="archive_view">查看压缩包</string>
+
+    <string name="marker_favorite">收藏</string>
+    <string name="marker_pin">固定到首页</string>
+    <string name="marker_label">标签</string>
+    <string name="marker_color">颜色</string>
+    <string name="marker_title">标签与收藏</string>
+    <string name="marker_favorites_section">收藏与置顶</string>
+
+    <string name="cleaner_title">存储清理</string>
+    <string name="cleaner_duplicates">重复文件</string>
+    <string name="cleaner_large">大文件</string>
+    <string name="cleaner_cache">缓存</string>
+    <string name="cleaner_scanning">正在扫描…已扫描 %d 个文件</string>
+    <string name="cleaner_no_duplicates">没有发现重复文件</string>
+    <string name="cleaner_no_large">没有发现大文件</string>
+    <string name="cleaner_no_cache">没有可清理的缓存</string>
+    <string name="cleaner_duplicates_found">%1$d 组 · 可释放 %2$s</string>
+    <string name="cleaner_duplicate_group">%1$d 份 · %2$s</string>
+    <string name="cleaner_delete_duplicates">删除重复项</string>
+    <string name="cleaner_delete_duplicates_message">确定删除 %1$d 个重复文件并释放 %2$s 吗？</string>
+    <string name="cleaner_clean_cache">清理缓存</string>
+    <string name="cleaner_cleaning">正在清理…</string>
+    <string name="cleaner_cleaned">已释放 %1$s</string>
+
+    <string name="network_auth">认证方式</string>
+    <string name="network_key">私钥</string>
+    <string name="network_no_key">未选择私钥</string>
+    <string name="network_select_key">选择私钥</string>
+    <string name="network_key_passphrase">私钥密码（可选）</string>
+    <string name="network_host_fingerprint">SSH 主机指纹（SHA256，可选）</string>
+    <string name="network_guest">访客 / 匿名</string>
+    <string name="network_key_required">请选择私钥</string>
+
+    <string name="zip_options">创建压缩包</string>
+    <string name="zip_name">压缩包名称</string>
+    <string name="zip_password_optional">密码（可选）</string>
+    <string name="zip_split_size">分卷大小（MB，0 表示不分卷）</string>
+    <string name="zip_split_hint">设置密码将使用 AES 加密；设置分卷大小可创建多卷 ZIP。</string>
 </resources>

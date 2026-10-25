@@ -90,6 +90,18 @@ data class AppSettings(
     val sortSpec: SortSpec get() = SortSpec(sortField, sortOrder)
 }
 
+enum class MarkerColor { NONE, RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE }
+
+data class FileMarker(
+    val color: MarkerColor = MarkerColor.NONE,
+    val label: String = "",
+    val favorite: Boolean = false,
+    val pinned: Boolean = false,
+) {
+    val isEmpty: Boolean
+        get() = color == MarkerColor.NONE && label.isBlank() && !favorite && !pinned
+}
+
 data class AppItem(
     val label: String,
     val packageName: String,

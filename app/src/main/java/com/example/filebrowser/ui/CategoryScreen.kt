@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -77,6 +79,7 @@ import com.example.filebrowser.data.SortSpec
 import com.example.filebrowser.data.ViewMode
 import com.example.filebrowser.util.Format
 import java.io.File
+import java.io.FileInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -123,6 +126,8 @@ fun CategoryScreen(state: AppState, kind: CategoryKind) {
     var showRename by remember { mutableStateOf(false) }
     var propertiesItem by remember { mutableStateOf<FileItem?>(null) }
     var archiveItem by remember { mutableStateOf<FileItem?>(null) }
+    var hashItem by remember { mutableStateOf<FileItem?>(null) }
+    var markerItem by remember { mutableStateOf<FileItem?>(null) }
 
     LaunchedEffect(kind, state.settings.showHidden, state.refreshTick) {
         loading = true
@@ -214,6 +219,7 @@ fun CategoryScreen(state: AppState, kind: CategoryKind) {
                                 item = item,
                                 selected = keyOf(item) in selected,
                                 selectionMode = selected.isNotEmpty(),
+                                marker = state.markerFor(item.path),
                                 onClick = {
                                     if (selected.isNotEmpty()) {
                                         selected = toggleKey(selected, keyOf(item))
@@ -238,6 +244,7 @@ fun CategoryScreen(state: AppState, kind: CategoryKind) {
                                 item = item,
                                 selected = keyOf(item) in selected,
                                 selectionMode = selected.isNotEmpty(),
+                                marker = state.markerFor(item.path),
                                 onClick = {
                                     if (selected.isNotEmpty()) {
                                         selected = toggleKey(selected, keyOf(item))
@@ -305,6 +312,18 @@ fun CategoryScreen(state: AppState, kind: CategoryKind) {
                     onClick = { single?.let { state.openWith(it) } },
                 ),
                 SheetAction(
+                    label = stringResource(R.string.file_hash),
+                    icon = Icons.Filled.Fingerprint,
+                    enabled = single != null && !single.isDirectory && single.path.isNotBlank(),
+                    onClick = { hashItem = single },
+                ),
+                SheetAction(
+                    label = stringResource(R.string.marker_title),
+                    icon = Icons.Filled.Tag,
+                    enabled = single != null && single.path.isNotBlank(),
+                    onClick = { markerItem = single },
+                ),
+                SheetAction(
                     label = stringResource(R.string.invert_selection),
                     icon = Icons.Filled.SelectAll,
                     onClick = {
@@ -354,10 +373,36 @@ fun CategoryScreen(state: AppState, kind: CategoryKind) {
         PropertiesDialog(item, state.repository) { propertiesItem = null }
     }
 
+    hashItem?.let { item ->
+        if (item.path.isNotBlank()) {
+            HashDialog(
+                name = item.name,
+                totalBytes = item.size,
+                openStream = { FileInputStream(File(item.path)) },
+                onDismiss = { hashItem = null },
+            )
+        }
+    }
+
+    markerItem?.let { item ->
+        MarkerDialog(
+            title = item.name,
+            initial = state.markerFor(item.path),
+            onSave = { state.setMarker(item.path, it) },
+            onDismiss = { markerItem = null },
+        )
+    }
+
     archiveItem?.let { item ->
         ActionSheet(
             title = item.name,
             actions = listOf(
+                SheetAction(
+                    label = stringResource(R.string.archive_view),
+                    icon = Icons.Filled.FolderZip,
+                    enabled = item.path.isNotBlank(),
+                    onClick = { state.navigate(Screen.ArchivePreview(item.path)) },
+                ),
                 SheetAction(
                     label = stringResource(R.string.unzip),
                     icon = Icons.Filled.FolderZip,

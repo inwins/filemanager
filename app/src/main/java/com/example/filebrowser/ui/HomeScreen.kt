@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
@@ -28,6 +29,8 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -47,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -97,6 +101,83 @@ fun HomeScreen(state: AppState) {
 
             item { SectionHeader(stringResource(R.string.quick_access)) }
             item { QuickAccess(state) }
+
+            val marked = state.markers.entries
+                .filter { (it.value.favorite || it.value.pinned) && File(it.key).exists() }
+                .sortedWith(compareByDescending<Map.Entry<String, com.example.filebrowser.data.FileMarker>> { it.value.pinned }
+                    .thenByDescending { it.value.favorite })
+                .map { (path, marker) ->
+                    val file = File(path)
+                    Triple(
+                        FileItem(
+                            path = path,
+                            name = file.name,
+                            isDirectory = file.isDirectory,
+                            size = if (file.isDirectory) 0L else file.length(),
+                            lastModified = file.lastModified(),
+                            mime = com.example.filebrowser.util.MimeTypes.fromName(file.name),
+                        ),
+                        marker,
+                        file,
+                    )
+                }
+            if (marked.isNotEmpty()) {
+                item { SectionHeader(stringResource(R.string.marker_favorites_section)) }
+                items(marked, key = { it.first.path }) { (fileItem, marker, _) ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { state.openItem(fileItem) }
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FileLeadingIcon(fileItem, 40.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    marker.label.ifBlank { fileItem.name },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (marker.favorite) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Icon(
+                                        Icons.Filled.Star,
+                                        contentDescription = null,
+                                        tint = Color(0xFFF9A825),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                                if (marker.pinned) {
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(
+                                        Icons.Filled.PushPin,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(15.dp),
+                                    )
+                                }
+                            }
+                            Text(
+                                fileItem.path,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        IconButton(onClick = { state.setMarker(fileItem.path, null) }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.remove),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
 
             item { SectionHeader(stringResource(R.string.categories)) }
             item {

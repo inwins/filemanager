@@ -18,4 +18,6 @@ sealed class Screen {
     data object Network : Screen()
     data class RemoteBrowser(val profileId: String, val path: String) : Screen()
     data object AudioPlayer : Screen()
+    data class ArchivePreview(val path: String) : Screen()
+    data class Cleaner(val path: String) : Screen()
 }

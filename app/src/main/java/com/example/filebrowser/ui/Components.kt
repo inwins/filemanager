@@ -50,6 +50,8 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material.icons.filled.TableChart
@@ -84,15 +86,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import com.example.filebrowser.R
 import com.example.filebrowser.data.CategoryKind
 import com.example.filebrowser.data.FileItem
+import com.example.filebrowser.data.FileMarker
+import com.example.filebrowser.data.MarkerColor
 import com.example.filebrowser.data.FileRepository
 import com.example.filebrowser.data.OperationState
 import com.example.filebrowser.data.SortField
@@ -141,7 +148,10 @@ fun fileVisual(item: FileItem): FileVisual {
 @Composable
 fun FileLeadingIcon(item: FileItem, size: Dp = 44.dp, modifier: Modifier = Modifier) {
     val visual = fileVisual(item)
-    if (item.isImage && !item.remote && (item.path.isNotBlank() || item.contentUri != null)) {
+    val context = LocalContext.current
+    val hasThumbnail = (item.isImage || item.isVideo) && !item.remote &&
+        (item.path.isNotBlank() || item.contentUri != null)
+    if (hasThumbnail) {
         Box(
             modifier
                 .size(size)
@@ -150,18 +160,28 @@ fun FileLeadingIcon(item: FileItem, size: Dp = 44.dp, modifier: Modifier = Modif
             contentAlignment = Alignment.Center,
         ) {
             AsyncImage(
-                model = item.path.ifBlank { item.contentUri },
+                model = ImageRequest.Builder(context)
+                    .data(item.path.ifBlank { item.contentUri })
+                    .videoFrameMillis(1000)
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
             if (item.isVideo) {
-                Icon(
-                    Icons.Filled.Movie,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(size / 2),
-                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Movie,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(size / 2),
+                    )
+                }
             }
         }
         return
@@ -188,6 +208,7 @@ fun FileRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     showPath: Boolean = false,
+    marker: FileMarker? = null,
 ) {
     val background = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
     Row(
@@ -218,14 +239,29 @@ fun FileRow(
                         append(Format.shortDate(item.lastModified))
                     }
                 }
+                if (!marker?.label.isNullOrBlank()) {
+                    append(" · ")
+                    append(marker?.label)
+                }
             }
-            Text(
-                second,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (marker != null && marker.color != MarkerColor.NONE) {
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(markerColor(marker.color))
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    second,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (showPath && item.path.isNotBlank()) {
                 Text(
                     item.path,
@@ -238,6 +274,20 @@ fun FileRow(
         }
         if (selectionMode) {
             Checkbox(checked = selected, onCheckedChange = null)
+        } else if (marker?.favorite == true) {
+            Icon(
+                Icons.Filled.Star,
+                contentDescription = null,
+                tint = Color(0xFFF9A825),
+                modifier = Modifier.size(20.dp),
+            )
+            if (item.isDirectory) {
+                Icon(
+                    Icons.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
+            }
         } else if (item.isDirectory) {
             Icon(
                 Icons.Filled.KeyboardArrowRight,
@@ -257,6 +307,7 @@ fun FileGridItem(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    marker: FileMarker? = null,
 ) {
     Column(
         modifier = modifier
@@ -276,9 +327,14 @@ fun FileGridItem(
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
             contentAlignment = Alignment.Center,
         ) {
-            if (item.isImage && !item.remote && (item.path.isNotBlank() || item.contentUri != null)) {
+            if ((item.isImage || item.isVideo) && !item.remote &&
+                (item.path.isNotBlank() || item.contentUri != null)
+            ) {
                 AsyncImage(
-                    model = item.path.ifBlank { item.contentUri },
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.path.ifBlank { item.contentUri })
+                        .videoFrameMillis(1000)
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -300,6 +356,32 @@ fun FileGridItem(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Filled.Movie, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
+                }
+            }
+            if (marker != null && (marker.favorite || marker.color != MarkerColor.NONE)) {
+                Row(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (marker.favorite) {
+                        Icon(
+                            Icons.Filled.Star,
+                            contentDescription = null,
+                            tint = Color(0xFFF9A825),
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                    if (marker.color != MarkerColor.NONE) {
+                        Spacer(Modifier.width(3.dp))
+                        Box(
+                            Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(markerColor(marker.color))
+                        )
+                    }
                 }
             }
             if (selectionMode && selected) {
@@ -1002,6 +1084,161 @@ fun OperationOverlay(operation: OperationState, onCancel: () -> Unit) {
         },
         confirmButton = {
             TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel_operation)) }
+        },
+    )
+}
+
+fun markerColor(color: MarkerColor): Color = when (color) {
+    MarkerColor.NONE -> Color.Transparent
+    MarkerColor.RED -> Color(0xFFE53935)
+    MarkerColor.ORANGE -> Color(0xFFF57C00)
+    MarkerColor.YELLOW -> Color(0xFFF9A825)
+    MarkerColor.GREEN -> Color(0xFF43A047)
+    MarkerColor.BLUE -> Color(0xFF1E88E5)
+    MarkerColor.PURPLE -> Color(0xFF8E24AA)
+}
+
+@Composable
+fun ZipOptionsDialog(
+    defaultName: String,
+    onConfirm: (name: String, password: String, splitSizeMb: Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf(defaultName) }
+    var password by remember { mutableStateOf("") }
+    var splitMb by remember { mutableStateOf("0") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.zip_options)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.zip_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text(stringResource(R.string.zip_password_optional)) },
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = splitMb,
+                    onValueChange = { splitMb = it.filter(Char::isDigit) },
+                    label = { Text(stringResource(R.string.zip_split_size)) },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                    ),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    stringResource(R.string.zip_split_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onConfirm(name, password, splitMb.toIntOrNull() ?: 0)
+                onDismiss()
+            }) { Text(stringResource(R.string.ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@Composable
+fun MarkerDialog(
+    title: String,
+    initial: FileMarker?,
+    onSave: (FileMarker?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var favorite by remember { mutableStateOf(initial?.favorite == true) }
+    var pinned by remember { mutableStateOf(initial?.pinned == true) }
+    var label by remember { mutableStateOf(initial?.label.orEmpty()) }
+    var color by remember { mutableStateOf(initial?.color ?: MarkerColor.NONE) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.marker_favorite), modifier = Modifier.weight(1f))
+                    Checkbox(checked = favorite, onCheckedChange = { favorite = it })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.marker_pin), modifier = Modifier.weight(1f))
+                    Checkbox(checked = pinned, onCheckedChange = { pinned = it })
+                }
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text(stringResource(R.string.marker_label)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(stringResource(R.string.marker_color), style = MaterialTheme.typography.labelMedium)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    listOf(
+                        MarkerColor.NONE,
+                        MarkerColor.RED,
+                        MarkerColor.ORANGE,
+                        MarkerColor.YELLOW,
+                        MarkerColor.GREEN,
+                        MarkerColor.BLUE,
+                        MarkerColor.PURPLE,
+                    ).forEach { value ->
+                        Box(
+                            Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (value == MarkerColor.NONE) MaterialTheme.colorScheme.surfaceVariant
+                                    else markerColor(value)
+                                )
+                                .clickable { color = value },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (value == color) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = if (value == MarkerColor.NONE) MaterialTheme.colorScheme.onSurface
+                                    else Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val marker = FileMarker(color, label.trim(), favorite, pinned)
+                onSave(if (marker.isEmpty) null else marker)
+                onDismiss()
+            }) { Text(stringResource(R.string.ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 }

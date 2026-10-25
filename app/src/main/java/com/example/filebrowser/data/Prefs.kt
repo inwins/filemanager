@@ -191,6 +191,14 @@ class Prefs(context: Context) {
                             domain = obj.optString("domain"),
                             share = obj.optString("share"),
                             rootPath = obj.optString("rootPath", "/").ifBlank { "/" },
+                            authMethod = enumValue(
+                                obj.optString("authMethod"),
+                                RemoteAuthMethod.PASSWORD,
+                            ),
+                            privateKeyPath = obj.optString("privateKeyPath"),
+                            keyPassphrase = SecretStore.decrypt(obj.optString("keyPassphrase")),
+                            hostKeyFingerprint = obj.optString("hostKeyFingerprint"),
+                            guest = obj.optBoolean("guest", false),
                         )
                     )
                 }
@@ -213,9 +221,52 @@ class Prefs(context: Context) {
                     .put("domain", it.domain)
                     .put("share", it.share)
                     .put("rootPath", it.rootPath)
+                    .put("authMethod", it.authMethod.name)
+                    .put("privateKeyPath", it.privateKeyPath)
+                    .put("keyPassphrase", SecretStore.encrypt(it.keyPassphrase))
+                    .put("hostKeyFingerprint", it.hostKeyFingerprint)
+                    .put("guest", it.guest)
             )
         }
         sp.edit().putString(KEY_REMOTE_PROFILES, array.toString()).apply()
+    }
+
+    fun loadMarkers(): Map<String, FileMarker> {
+        val raw = sp.getString(KEY_MARKERS, null) ?: return emptyMap()
+        return runCatching {
+            val obj = JSONObject(raw)
+            buildMap {
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val path = keys.next()
+                    val value = obj.optJSONObject(path) ?: continue
+                    val marker = FileMarker(
+                        color = enumValue(value.optString("color"), MarkerColor.NONE),
+                        label = value.optString("label"),
+                        favorite = value.optBoolean("favorite", false),
+                        pinned = value.optBoolean("pinned", false),
+                    )
+                    if (!marker.isEmpty) put(path, marker)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun saveMarkers(markers: Map<String, FileMarker>) {
+        val obj = JSONObject()
+        markers.forEach { (path, marker) ->
+            if (!marker.isEmpty) {
+                obj.put(
+                    path,
+                    JSONObject()
+                        .put("color", marker.color.name)
+                        .put("label", marker.label)
+                        .put("favorite", marker.favorite)
+                        .put("pinned", marker.pinned)
+                )
+            }
+        }
+        sp.edit().putString(KEY_MARKERS, obj.toString()).apply()
     }
 
     fun rootAccessEnabled(): Boolean = sp.getBoolean(KEY_ROOT_ACCESS, false)
@@ -254,6 +305,7 @@ class Prefs(context: Context) {
         private const val KEY_READER_PROGRESS = "reader_progress"
         private const val KEY_ROOT_ACCESS = "root_access"
         private const val KEY_REMOTE_PROFILES = "remote_profiles"
+        private const val KEY_MARKERS = "file_markers"
         private const val MAX_RECENTS = 30
     }
 }

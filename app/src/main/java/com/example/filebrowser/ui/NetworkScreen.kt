@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.Info
@@ -63,6 +65,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -79,6 +82,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -94,6 +98,7 @@ import com.example.filebrowser.data.RemoteFileSystem
 import com.example.filebrowser.data.RemoteFileSystems
 import com.example.filebrowser.data.RemoteTransfer
 import com.example.filebrowser.data.RemoteProfile
+import com.example.filebrowser.data.RemoteAuthMethod
 import com.example.filebrowser.data.RemoteProtocol
 import com.example.filebrowser.stream.RemoteStreamServer
 import com.example.filebrowser.stream.RemoteStreamService
@@ -298,10 +303,42 @@ private fun RemoteProfileDialog(
     var domain by remember(initial) { mutableStateOf(initial?.domain.orEmpty()) }
     var share by remember(initial) { mutableStateOf(initial?.share.orEmpty()) }
     var rootPath by remember(initial) { mutableStateOf(initial?.rootPath ?: "/") }
+    var authMethod by remember(initial) { mutableStateOf(initial?.authMethod ?: RemoteAuthMethod.PASSWORD) }
+    var privateKeyPath by remember(initial) { mutableStateOf(initial?.privateKeyPath.orEmpty()) }
+    var keyPassphrase by remember(initial) { mutableStateOf(initial?.keyPassphrase.orEmpty()) }
+    var hostKeyFingerprint by remember(initial) { mutableStateOf(initial?.hostKeyFingerprint.orEmpty()) }
+    var guest by remember(initial) { mutableStateOf(initial?.guest == true) }
     var error by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     val hostRequired = stringResource(R.string.network_host_required)
     val invalidPort = stringResource(R.string.network_invalid_port)
     val shareRequired = stringResource(R.string.network_share_required)
+    val keyRequired = stringResource(R.string.network_key_required)
+    val keyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val displayName = runCatching {
+                context.contentResolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null,
+                )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            }.getOrNull() ?: "private_key"
+            val dir = File(context.filesDir, "remote_keys").apply { mkdirs() }
+            val destination = File(
+                dir,
+                displayName.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "private_key" },
+            )
+            val copied = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destination.outputStream().use { output -> input.copyTo(output) }
+                }
+                true
+            }.getOrDefault(false)
+            if (copied) privateKeyPath = destination.absolutePath
+        }
+    }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -371,21 +408,97 @@ private fun RemoteProfileDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text(stringResource(R.string.network_username)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text(stringResource(R.string.network_password)) },
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (protocol == RemoteProtocol.SFTP) {
+                Text(
+                    stringResource(R.string.network_auth),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RemoteAuthMethod.entries.forEach { method ->
+                        FilterChip(
+                            selected = authMethod == method,
+                            onClick = { authMethod = method },
+                            label = {
+                                Text(
+                                    when (method) {
+                                        RemoteAuthMethod.PASSWORD -> stringResource(R.string.network_password)
+                                        RemoteAuthMethod.KEY -> stringResource(R.string.network_key)
+                                    }
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+            if (protocol == RemoteProtocol.SMB) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(R.string.network_guest),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(checked = guest, onCheckedChange = { guest = it })
+                }
+            }
+            if (!(protocol == RemoteProtocol.SMB && guest)) {
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text(stringResource(R.string.network_username)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (protocol == RemoteProtocol.SFTP && authMethod == RemoteAuthMethod.KEY) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (privateKeyPath.isBlank()) stringResource(R.string.network_no_key)
+                            else File(privateKeyPath).name,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        TextButton(onClick = { keyLauncher.launch(arrayOf("*/*")) }) {
+                            Text(stringResource(R.string.network_select_key))
+                        }
+                    }
+                    OutlinedTextField(
+                        value = keyPassphrase,
+                        onValueChange = { keyPassphrase = it },
+                        label = { Text(stringResource(R.string.network_key_passphrase)) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text(stringResource(R.string.network_password)) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            if (protocol == RemoteProtocol.SFTP) {
+                OutlinedTextField(
+                    value = hostKeyFingerprint,
+                    onValueChange = { hostKeyFingerprint = it },
+                    label = { Text(stringResource(R.string.network_host_fingerprint)) },
+                    placeholder = { Text("SHA256:...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             OutlinedTextField(
                 value = rootPath,
                 onValueChange = { rootPath = it },
@@ -408,6 +521,8 @@ private fun RemoteProfileDialog(
                         host.isBlank() -> hostRequired
                         parsedPort == null || parsedPort !in 1..65535 -> invalidPort
                         protocol == RemoteProtocol.SMB && share.isBlank() -> shareRequired
+                        protocol == RemoteProtocol.SFTP &&
+                            authMethod == RemoteAuthMethod.KEY && privateKeyPath.isBlank() -> keyRequired
                         else -> null
                     }
                     if (error == null && parsedPort != null) {
@@ -423,6 +538,11 @@ private fun RemoteProfileDialog(
                                 domain = domain.trim(),
                                 share = share.trim(),
                                 rootPath = rootPath.trim().ifBlank { "/" },
+                                authMethod = authMethod,
+                                privateKeyPath = privateKeyPath,
+                                keyPassphrase = keyPassphrase,
+                                hostKeyFingerprint = hostKeyFingerprint.trim(),
+                                guest = protocol == RemoteProtocol.SMB && guest,
                             )
                         )
                         onDismiss()
@@ -466,6 +586,7 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showDeleteSelected by remember { mutableStateOf(false) }
     var showSelectionMore by remember { mutableStateOf(false) }
+    var hashEntry by remember { mutableStateOf<RemoteEntry?>(null) }
 
     fun goUp() {
         if (currentPath == "/") {
@@ -1129,6 +1250,7 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
             onOpen = { openEntry(entry) },
             onStream = { startStream(entry, copyUrl = false) },
             onCopyStream = { startStream(entry, copyUrl = true) },
+            onHash = { hashEntry = entry },
             onDownload = { downloadToDevice(entry) },
             onRename = { renameEntry = entry },
             onProperties = { propertiesEntry = entry },
@@ -1167,6 +1289,18 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
 
     propertiesEntry?.let { entry ->
         RemotePropertiesDialog(profile, entry) { propertiesEntry = null }
+    }
+
+    hashEntry?.let { entry ->
+        HashDialog(
+            name = entry.name,
+            totalBytes = entry.size,
+            openStream = {
+                val system = fs ?: throw IllegalStateException("Not connected")
+                system.openStream(entry.path)
+            },
+            onDismiss = { hashEntry = null },
+        )
     }
 
     if (showDeleteSelected) {
@@ -1287,6 +1421,7 @@ private fun RemoteEntryActionsDialog(
     onOpen: () -> Unit,
     onStream: () -> Unit,
     onCopyStream: () -> Unit,
+    onHash: () -> Unit,
     onDownload: () -> Unit,
     onRename: () -> Unit,
     onProperties: () -> Unit,
@@ -1315,6 +1450,10 @@ private fun RemoteEntryActionsDialog(
                 RemoteActionRow(Icons.Filled.Download, stringResource(R.string.network_download), enabled = !entry.isDirectory) {
                     onDismiss()
                     onDownload()
+                }
+                RemoteActionRow(Icons.Filled.Fingerprint, stringResource(R.string.file_hash), enabled = !entry.isDirectory) {
+                    onDismiss()
+                    onHash()
                 }
                 RemoteActionRow(Icons.Filled.Edit, stringResource(R.string.rename)) {
                     onDismiss()

@@ -13,11 +13,13 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.example.filebrowser.data.AppItem
 import com.example.filebrowser.data.AppSettings
+import com.example.filebrowser.data.ArchiveOps
 import com.example.filebrowser.data.AudioPlayer
 import com.example.filebrowser.data.Bookmark
 import com.example.filebrowser.data.Clipboard
 import com.example.filebrowser.data.ClipboardOp
 import com.example.filebrowser.data.FileItem
+import com.example.filebrowser.data.FileMarker
 import com.example.filebrowser.data.FileOps
 import com.example.filebrowser.data.FileRepository
 import com.example.filebrowser.data.OperationState
@@ -86,6 +88,8 @@ class AppState(context: Context) {
         private set
     private var rootPreviewHintShown = false
     var remoteProfiles by mutableStateOf(prefs.loadRemoteProfiles())
+        private set
+    var markers by mutableStateOf(prefs.loadMarkers())
         private set
 
     var requestPermissionAction: (() -> Unit)? = null
@@ -242,6 +246,19 @@ class AppState(context: Context) {
         prefs.saveSettings(newSettings)
     }
 
+    fun markerFor(path: String): FileMarker? = markers[path]
+
+    fun setMarker(path: String, marker: FileMarker?) {
+        if (path.isBlank()) return
+        markers = if (marker == null || marker.isEmpty) {
+            markers - path
+        } else {
+            markers + (path to marker)
+        }
+        prefs.saveMarkers(markers)
+        refreshTick++
+    }
+
     fun saveRemoteProfile(profile: RemoteProfile) {
         remoteProfiles = if (remoteProfiles.any { it.id == profile.id }) {
             remoteProfiles.map { if (it.id == profile.id) profile else it }
@@ -360,6 +377,10 @@ class AppState(context: Context) {
         val actualSiblings = if (actual.path != item.path) listOf(actual) else siblings
         if (actual.isAudio) {
             playAudio(actual, actualSiblings)
+            return
+        }
+        if (actual.isArchive && actual.path.isNotBlank()) {
+            navigate(Screen.ArchivePreview(actual.path))
             return
         }
         if (actual.isImage) {
@@ -661,6 +682,49 @@ class AppState(context: Context) {
                     repository.scan(listOf(target))
                     appContext.getString(R.string.created)
                 }
+            }
+        }
+    }
+
+    fun zipWithOptions(
+        items: List<FileItem>,
+        destPath: String,
+        archiveName: String,
+        password: String,
+        splitSizeMb: Int,
+    ) {
+        if (items.any { needsRoot(it.path) } || needsRootForWrite(destPath)) {
+            message = appContext.getString(R.string.root_zip_unsupported)
+            return
+        }
+        val sources = items.filter { it.path.isNotBlank() }.map { File(it.path) }.filter { it.exists() }
+        if (sources.isEmpty()) {
+            message = appContext.getString(R.string.zip_failed)
+            return
+        }
+        var name = archiveName.trim()
+        if (name.isBlank()) {
+            name = if (sources.size == 1) sources.first().name.substringBeforeLast('.') else "archive"
+        }
+        if (!name.endsWith(".zip", ignoreCase = true)) name += ".zip"
+        val zipFile = FileOps.uniqueFile(File(destPath, name))
+        val splitBytes = splitSizeMb.toLong() * 1024L * 1024L
+        runOperation(R.string.zip_progress) { _, shouldContinue ->
+            val ok = if (password.isBlank() && splitSizeMb <= 0) {
+                FileOps.zip(sources, zipFile, shouldContinue = shouldContinue)
+            } else {
+                ArchiveOps.createZip(
+                    sources = sources,
+                    zipFile = zipFile,
+                    password = password.takeIf { it.isNotBlank() },
+                    splitBytes = splitBytes,
+                )
+            }
+            if (ok) {
+                repository.scan(listOf(zipFile))
+                appContext.getString(R.string.zipped, zipFile.name)
+            } else {
+                null
             }
         }
     }

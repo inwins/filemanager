@@ -176,6 +176,8 @@ fun AppRoot(state: AppState) {
                 is Screen.Network -> NetworkScreen(state)
                 is Screen.RemoteBrowser -> RemoteBrowserScreen(state, current)
                 is Screen.AudioPlayer -> AudioPlayerScreen(state)
+                is Screen.ArchivePreview -> ArchivePreviewScreen(state, current.path)
+                is Screen.Cleaner -> CleanerScreen(state, current.path)
             }
         }
     }

@@ -166,6 +166,7 @@ fun SearchScreen(state: AppState, root: String) {
                             onClick = { state.openItem(item, results) },
                             onLongClick = { },
                             showPath = true,
+                            marker = state.markerFor(item.path),
                         )
                     }
                 }

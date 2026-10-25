@@ -5,7 +5,7 @@
 路径：仓库根目录
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
-当前版本：1.5.0（versionCode 9）
+当前版本：1.6.0（versionCode 10）
 
 界面与交互参考主流文件管理器，使用原创代码实现。依赖统一走
 阿里云 Maven 镜像；如需拉取 GitHub 参考项目，建议使用 gitclone、ghproxy
@@ -39,6 +39,11 @@ compileSdk 34 / minSdk 26 / targetSdk 34
    - 本地、Root、SMB、SFTP 音频会自动查找同名 .lrc；远程歌词随音频缓存。
    - 远程目录支持多选、复制/剪切/删除；可粘贴到远程目录或本地目录，也支持本地复制后粘贴到远程。
    - 视频/音频可通过本机 HTTP 流媒体接口转发给 VLC 等外部播放器，支持 Range 拖动。
+   - 压缩包预览/解压：ZIP、7Z、RAR、TAR、TAR.GZ、GZ；支持 AES 加密 ZIP 和分卷 ZIP 创建。
+   - 文件哈希：MD5 / SHA-1 / SHA-256。
+   - 存储清理：重复文件、大文件、缓存清理。
+   - 标签、收藏、置顶和颜色标记；收藏/置顶显示在首页。
+   - 本地图片和视频缩略图。
    - 文本内置编辑器：UTF-8 / GBK 读取、保存、未保存提醒。
    - 打开方式、分享、APK 安装（FileProvider）。
    - Root 访问：浏览 /data 等受限路径，支持 Root 文件操作与本地互传。
@@ -149,8 +154,8 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 - SharedPreferences 设置 / 书签 / 最近记录 / 阅读进度（Robolectric）。
 - Root ls 输出解析、隐藏文件过滤。
 - LRC 歌词解析、时间轴定位。
-- HTTP Range 请求解析。
-- 共 42 项测试。
+- HTTP Range 请求解析、文件哈希、ZIP 创建/加密/解压。
+- 共 46 项测试。
 
 报告：app/build/reports/tests/testDebugUnitTest/index.html
 
@@ -264,6 +269,8 @@ app/src/main/java/com/example/filebrowser/
     RemoteModels.kt  网络存储模型
     RemoteFileSystem.kt SMB / SFTP 实现
     RemoteTransfer.kt 远程/本地复制粘贴
+    ArchiveOps.kt    ZIP/7Z/RAR/TAR 预览与解压
+    StorageCleaner.kt 重复文件/大文件/缓存扫描
     SecretStore.kt   网络密码加密
     Prefs.kt         SharedPreferences（设置 / 书签 / 最近记录 / 阅读进度）
   ui/
@@ -278,6 +285,9 @@ app/src/main/java/com/example/filebrowser/
     ReaderScreen.kt  TXT 阅读器（章节 / 书签 / TTS / 主题）
     ChangelogScreen.kt 更新日志
     NetworkScreen.kt 网络存储列表、配置与远程浏览
+    ArchivePreviewScreen.kt 压缩包预览与解压
+    CleanerScreen.kt 存储清理
+    HashDialog.kt    MD5/SHA-1/SHA-256 计算
     Components.kt    文件行 / 网格、图标、对话框、底部弹层
     theme/Theme.kt   Material 3 主题
   stream/            本地 HTTP 流媒体服务、前台服务、令牌注册
@@ -324,5 +334,6 @@ scripts/release.sh   发布脚本
 - SFTP 密钥登录、主机指纹校验。
 - 云盘（WebDAV / 坚果云等）。
 - 视频内置播放器、更多压缩格式（7z / rar）
-- 流媒体服务目前仅监听 127.0.0.1，供本机其他应用访问；暂不支持局域网/PC 访问。。
+- 流媒体服务目前仅监听 127.0.0.1，供本机其他应用访问；暂不支持局域网/PC 访问。
+- 远程图片/视频缩略图尚未实现，目前仅本地文件生成缩略图。。
 - 深色 AMOLED、平板双栏布局、文件标签。
