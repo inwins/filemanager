@@ -170,6 +170,60 @@ class Prefs(context: Context) {
         }.getOrDefault(JSONObject())
     }
 
+    fun loadRemoteProfiles(): List<RemoteProfile> {
+        val raw = sp.getString(KEY_REMOTE_PROFILES, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val id = obj.optString("id")
+                    if (id.isBlank()) continue
+                    add(
+                        RemoteProfile(
+                            id = id,
+                            name = obj.optString("name", id),
+                            protocol = enumValue(obj.optString("protocol"), RemoteProtocol.SMB),
+                            host = obj.optString("host"),
+                            port = obj.optInt("port", 0),
+                            username = obj.optString("username"),
+                            password = SecretStore.decrypt(obj.optString("password")),
+                            domain = obj.optString("domain"),
+                            share = obj.optString("share"),
+                            rootPath = obj.optString("rootPath", "/").ifBlank { "/" },
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveRemoteProfiles(profiles: List<RemoteProfile>) {
+        val array = JSONArray()
+        profiles.forEach {
+            array.put(
+                JSONObject()
+                    .put("id", it.id)
+                    .put("name", it.name)
+                    .put("protocol", it.protocol.name)
+                    .put("host", it.host)
+                    .put("port", it.port)
+                    .put("username", it.username)
+                    .put("password", SecretStore.encrypt(it.password))
+                    .put("domain", it.domain)
+                    .put("share", it.share)
+                    .put("rootPath", it.rootPath)
+            )
+        }
+        sp.edit().putString(KEY_REMOTE_PROFILES, array.toString()).apply()
+    }
+
+    fun rootAccessEnabled(): Boolean = sp.getBoolean(KEY_ROOT_ACCESS, false)
+
+    fun saveRootAccessEnabled(enabled: Boolean) {
+        sp.edit().putBoolean(KEY_ROOT_ACCESS, enabled).apply()
+    }
+
     fun lastPath(fallback: String): String = sp.getString(KEY_LAST_PATH, fallback) ?: fallback
 
     fun saveLastPath(path: String) {
@@ -198,6 +252,8 @@ class Prefs(context: Context) {
         private const val KEY_READER_TTS_AUTO_NEXT = "reader_tts_auto_next"
         private const val KEY_READER_BOOKMARKS = "reader_bookmarks"
         private const val KEY_READER_PROGRESS = "reader_progress"
+        private const val KEY_ROOT_ACCESS = "root_access"
+        private const val KEY_REMOTE_PROFILES = "remote_profiles"
         private const val MAX_RECENTS = 30
     }
 }

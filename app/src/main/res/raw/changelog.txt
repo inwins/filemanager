@@ -1,3 +1,13 @@
+v1.2.0
+- Added root access: enable it in Settings, grant superuser permission, then browse restricted paths such as /data and /system.
+- Root operations: create, rename, delete and copy between root and normal storage; root files are copied to cache for preview.
+- Added SMB2/SMB3 network storage: add, edit and delete servers, browse shares, upload, download, rename, delete and view properties.
+- Added SFTP network storage with password authentication and the same file operations.
+- Added a Network tab with encrypted password storage.
+- TTS now starts from the text currently visible on screen.
+- TTS speaks sequentially and supports automatic next chapter, pause/resume and engine diagnostics.
+- Reader settings sheet fixed and improved.
+
 v1.1.0
 - Added a TXT reader with automatic chapter detection for "Chapter N", "第X章 / 第X卷 / 第X节", prologue/epilogue and Markdown headings.
 - Added a chapter list with jump-to-chapter navigation.

@@ -23,11 +23,14 @@ import com.example.cxfilemanager.data.OperationState
 import com.example.cxfilemanager.data.Prefs
 import com.example.cxfilemanager.data.ReaderSettings
 import com.example.cxfilemanager.data.RecentEntry
+import com.example.cxfilemanager.data.RemoteProfile
+import com.example.cxfilemanager.data.RootShell
 import com.example.cxfilemanager.data.SortField
 import com.example.cxfilemanager.data.SortOrder
 import com.example.cxfilemanager.data.ViewMode
 import com.example.cxfilemanager.ui.Screen
 import com.example.cxfilemanager.util.Paths
+import java.util.Locale
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -68,13 +71,85 @@ class AppState(context: Context) {
     var includeSystemApps by mutableStateOf(false)
     var readerSettings by mutableStateOf(prefs.loadReaderSettings())
         private set
+    var rootEnabled by mutableStateOf(prefs.rootAccessEnabled())
+        private set
+    var rootAvailable by mutableStateOf(false)
+        private set
+    var rootChecking by mutableStateOf(false)
+        private set
+    private var rootPreviewHintShown = false
+    var remoteProfiles by mutableStateOf(prefs.loadRemoteProfiles())
+        private set
 
     var requestPermissionAction: (() -> Unit)? = null
 
     @Volatile
     private var operationJob: Job? = null
 
+    init {
+        if (rootEnabled) {
+            scope.launch {
+                rootChecking = true
+                rootAvailable = withContext(Dispatchers.IO) { RootShell.isAvailable() }
+                rootChecking = false
+            }
+        }
+    }
+
     val current: Screen get() = backStack.last()
+
+    fun enableRootAccess(enabled: Boolean) {
+        rootEnabled = enabled
+        prefs.saveRootAccessEnabled(enabled)
+        if (!enabled) {
+            rootAvailable = false
+            return
+        }
+        rootChecking = true
+        scope.launch {
+            val available = withContext(Dispatchers.IO) { RootShell.isAvailable(force = true) }
+            rootAvailable = available
+            rootChecking = false
+            if (!available) {
+                rootEnabled = false
+                prefs.saveRootAccessEnabled(false)
+                message = appContext.getString(R.string.root_unavailable)
+            } else {
+                message = appContext.getString(R.string.root_enabled)
+            }
+        }
+    }
+
+    fun needsRoot(path: String): Boolean =
+        rootEnabled && rootAvailable && !runCatching { java.io.File(path).canRead() }.getOrDefault(false)
+
+    fun needsRootForWrite(parentPath: String): Boolean =
+        rootEnabled && rootAvailable && !runCatching { java.io.File(parentPath).canWrite() }.getOrDefault(false)
+
+    fun listFiles(path: String, showHidden: Boolean, sort: com.example.cxfilemanager.data.SortSpec): List<FileItem> {
+        return try {
+            repository.list(path, showHidden, sort)
+        } catch (error: Exception) {
+            if (rootEnabled && rootAvailable) RootShell.list(path, showHidden, sort) else throw error
+        }
+    }
+
+    private fun materializeRoot(item: FileItem): FileItem? {
+        val cacheDir = File(
+            File(appContext.cacheDir, "root_preview"),
+            kotlin.math.abs(item.path.hashCode()).toString(),
+        )
+        val local = RootShell.copyToCache(item.path, cacheDir, item.name)
+        if (local == null) {
+            message = appContext.getString(R.string.root_copy_failed)
+            return null
+        }
+        if (!rootPreviewHintShown) {
+            rootPreviewHintShown = true
+            message = appContext.getString(R.string.root_preview_hint)
+        }
+        return repository.toItem(local).copy(name = item.name)
+    }
 
     fun hasStoragePermission(): Boolean {
         return runCatching {
@@ -135,6 +210,7 @@ class AppState(context: Context) {
                 Screen.Browser(path)
             }
             2 -> Screen.Categories
+            3 -> Screen.Network
             else -> Screen.Settings
         }
         backStack = listOf(screen)
@@ -148,6 +224,22 @@ class AppState(context: Context) {
         settings = newSettings
         prefs.saveSettings(newSettings)
     }
+
+    fun saveRemoteProfile(profile: RemoteProfile) {
+        remoteProfiles = if (remoteProfiles.any { it.id == profile.id }) {
+            remoteProfiles.map { if (it.id == profile.id) profile else it }
+        } else {
+            remoteProfiles + profile
+        }
+        prefs.saveRemoteProfiles(remoteProfiles)
+    }
+
+    fun deleteRemoteProfile(id: String) {
+        remoteProfiles = remoteProfiles.filterNot { it.id == id }
+        prefs.saveRemoteProfiles(remoteProfiles)
+    }
+
+    fun remoteProfile(id: String): RemoteProfile? = remoteProfiles.firstOrNull { it.id == id }
 
     fun updateReaderSettings(newSettings: ReaderSettings) {
         readerSettings = newSettings
@@ -217,7 +309,11 @@ class AppState(context: Context) {
         clipboard = null
     }
 
-    fun openItem(item: FileItem, siblings: List<FileItem> = listOf(item)) {
+    fun openItem(
+        item: FileItem,
+        siblings: List<FileItem> = listOf(item),
+        addToRecent: Boolean = true,
+    ) {
         if (item.isDirectory) {
             if (item.path.isBlank()) {
                 message = appContext.getString(R.string.open_folder_failed)
@@ -226,29 +322,35 @@ class AppState(context: Context) {
             }
             return
         }
-        addRecent(item)
-        if (item.isImage) {
-            val imageItems = siblings.filter { it.isImage }
+        val actual = if (needsRoot(item.path)) {
+            materializeRoot(item) ?: return
+        } else {
+            if (addToRecent) addRecent(item)
+            item
+        }
+        val actualSiblings = if (actual.path != item.path) listOf(actual) else siblings
+        if (actual.isImage) {
+            val imageItems = actualSiblings.filter { it.isImage }
             val models = imageItems.mapNotNull { modelOf(it) }
-            val target = modelOf(item)
+            val target = modelOf(actual)
             if (models.isNotEmpty() && target != null) {
                 navigate(Screen.ImageViewer(models, models.indexOf(target).coerceAtLeast(0)))
                 return
             }
         }
-        if (item.isText && item.path.isNotBlank()) {
-            if (item.extension in setOf("txt", "log", "md")) {
-                navigate(Screen.Reader(item.path))
+        if (actual.isText && actual.path.isNotBlank()) {
+            if (actual.extension in setOf("txt", "log", "md")) {
+                navigate(Screen.Reader(actual.path))
             } else {
-                navigate(Screen.TextEditor(item.path))
+                navigate(Screen.TextEditor(actual.path))
             }
             return
         }
-        if (item.isApk) {
-            installApk(item)
+        if (actual.isApk) {
+            installApk(actual)
             return
         }
-        openExternal(item)
+        openExternal(actual)
     }
 
     private fun modelOf(item: FileItem): String? =
@@ -270,7 +372,8 @@ class AppState(context: Context) {
     }
 
     fun openWith(item: FileItem) {
-        val intent = repository.openIntent(item)
+        val target = if (needsRoot(item.path)) materializeRoot(item) ?: return else item
+        val intent = repository.openIntent(target)
         if (intent == null) {
             message = appContext.getString(R.string.open_failed)
             return
@@ -283,7 +386,14 @@ class AppState(context: Context) {
     }
 
     fun share(items: List<FileItem>) {
-        val intent = repository.shareIntent(items)
+        val prepared = items.mapNotNull { item ->
+            if (needsRoot(item.path)) {
+                if (item.isDirectory) null else materializeRoot(item)
+            } else {
+                item
+            }
+        }
+        val intent = repository.shareIntent(prepared)
         if (intent == null) {
             message = appContext.getString(R.string.share_failed)
             return
@@ -296,7 +406,8 @@ class AppState(context: Context) {
     }
 
     fun installApk(item: FileItem) {
-        val intent = repository.installIntent(item)
+        val target = if (needsRoot(item.path)) materializeRoot(item) ?: return else item
+        val intent = repository.installIntent(target)
         if (intent == null) {
             message = appContext.getString(R.string.install_failed)
             return
@@ -349,25 +460,37 @@ class AppState(context: Context) {
         }
         val destDir = File(destPath)
         val moving = clip.op == ClipboardOp.MOVE
+        val destRoot = needsRootForWrite(destPath)
         runOperation(if (moving) R.string.move_progress else R.string.copy_progress) { update, shouldContinue ->
             var success = 0
             val scanned = mutableListOf<File>()
             for (item in clip.items) {
                 if (!shouldContinue()) return@runOperation null
                 if (item.path.isBlank()) continue
-                val source = File(item.path)
-                if (!source.exists()) continue
-                val target = FileOps.uniqueFile(File(destDir, source.name))
-                update(source.name)
-                val ok = if (moving) {
-                    FileOps.move(source, target, shouldContinue = shouldContinue)
+                val sourceRoot = needsRoot(item.path)
+                if (!sourceRoot && !File(item.path).exists()) continue
+                val targetPath = uniqueTargetPath(destPath, item.name, destRoot)
+                update(item.name)
+                val ok = if (sourceRoot || destRoot) {
+                    RootShell.copy(
+                        src = item.path,
+                        dest = targetPath,
+                        move = moving,
+                        destLocal = !destRoot,
+                    )
                 } else {
-                    FileOps.copyRecursive(source, target, shouldContinue = shouldContinue)
+                    val source = File(item.path)
+                    val target = File(targetPath)
+                    if (moving) {
+                        FileOps.move(source, target, shouldContinue = shouldContinue)
+                    } else {
+                        FileOps.copyRecursive(source, target, shouldContinue = shouldContinue)
+                    }
                 }
                 if (ok) {
                     success++
-                    scanned.add(target)
-                    if (moving) scanned.add(source)
+                    if (!destRoot) scanned.add(File(targetPath))
+                    if (moving && !sourceRoot) scanned.add(File(item.path))
                 }
             }
             repository.scan(scanned)
@@ -384,7 +507,8 @@ class AppState(context: Context) {
             for (item in items) {
                 if (!shouldContinue()) break
                 update(item.name)
-                if (repository.deleteItem(item)) success++
+                val ok = if (needsRoot(item.path)) RootShell.delete(item.path) else repository.deleteItem(item)
+                if (ok) success++
             }
             if (success == 0) null else appContext.getString(R.string.deleted, success)
         }
@@ -397,12 +521,22 @@ class AppState(context: Context) {
             return
         }
         runOperation(R.string.rename_progress) { _, _ ->
-            val target = FileOps.rename(File(item.path), newName)
-            if (target == null) {
-                null
+            if (needsRoot(item.path)) {
+                val parent = File(item.path).parent ?: return@runOperation null
+                val target = File(parent, newName).path
+                if (RootShell.rename(item.path, target)) {
+                    appContext.getString(R.string.renamed_done)
+                } else {
+                    null
+                }
             } else {
-                repository.scan(listOf(File(item.path), target))
-                appContext.getString(R.string.renamed_done)
+                val target = FileOps.rename(File(item.path), newName)
+                if (target == null) {
+                    null
+                } else {
+                    repository.scan(listOf(File(item.path), target))
+                    appContext.getString(R.string.renamed_done)
+                }
             }
         }
     }
@@ -413,12 +547,17 @@ class AppState(context: Context) {
             return
         }
         runOperation(R.string.create_progress) { _, _ ->
-            val target = FileOps.createFolder(File(parentPath), name)
-            if (target == null) {
-                null
+            if (needsRootForWrite(parentPath)) {
+                val target = File(parentPath, name)
+                if (RootShell.mkdir(target.path)) appContext.getString(R.string.created) else null
             } else {
-                repository.scan(listOf(target))
-                appContext.getString(R.string.created)
+                val target = FileOps.createFolder(File(parentPath), name)
+                if (target == null) {
+                    null
+                } else {
+                    repository.scan(listOf(target))
+                    appContext.getString(R.string.created)
+                }
             }
         }
     }
@@ -429,17 +568,26 @@ class AppState(context: Context) {
             return
         }
         runOperation(R.string.create_progress) { _, _ ->
-            val target = FileOps.createFile(File(parentPath), name)
-            if (target == null) {
-                null
+            if (needsRootForWrite(parentPath)) {
+                val target = File(parentPath, name)
+                if (RootShell.touch(target.path)) appContext.getString(R.string.created) else null
             } else {
-                repository.scan(listOf(target))
-                appContext.getString(R.string.created)
+                val target = FileOps.createFile(File(parentPath), name)
+                if (target == null) {
+                    null
+                } else {
+                    repository.scan(listOf(target))
+                    appContext.getString(R.string.created)
+                }
             }
         }
     }
 
     fun zip(items: List<FileItem>, destPath: String) {
+        if (items.any { needsRoot(it.path) } || needsRootForWrite(destPath)) {
+            message = appContext.getString(R.string.root_zip_unsupported)
+            return
+        }
         val sources = items.filter { it.path.isNotBlank() }.map { File(it.path) }.filter { it.exists() }
         if (sources.isEmpty()) {
             message = appContext.getString(R.string.zip_failed)
@@ -460,6 +608,10 @@ class AppState(context: Context) {
     }
 
     fun unzip(item: FileItem, destPath: String) {
+        if (needsRoot(item.path) || needsRootForWrite(destPath)) {
+            message = appContext.getString(R.string.root_zip_unsupported)
+            return
+        }
         if (item.path.isBlank()) {
             message = appContext.getString(R.string.unzip_failed)
             return
@@ -489,6 +641,23 @@ class AppState(context: Context) {
     fun refresh() {
         refreshTick++
     }
+
+    private fun uniqueTargetPath(destPath: String, name: String, destRoot: Boolean): String {
+        val first = File(destPath, name)
+        if (!targetExists(first.path, destRoot)) return first.path
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var index = 1
+        while (true) {
+            val candidate = File(destPath, "$base ($index)$ext")
+            if (!targetExists(candidate.path, destRoot)) return candidate.path
+            index++
+        }
+    }
+
+    private fun targetExists(path: String, destRoot: Boolean): Boolean =
+        if (destRoot) RootShell.exists(path) else File(path).exists()
 
     private fun runOperation(
         titleRes: Int,

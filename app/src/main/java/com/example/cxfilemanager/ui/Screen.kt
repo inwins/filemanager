@@ -15,4 +15,6 @@ sealed class Screen {
     data class TextEditor(val path: String) : Screen()
     data class Reader(val path: String) : Screen()
     data object Changelog : Screen()
+    data object Network : Screen()
+    data class RemoteBrowser(val profileId: String, val path: String) : Screen()
 }

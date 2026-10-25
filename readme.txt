@@ -5,7 +5,7 @@ CX 文件管理器（仿制版）—— 构建说明
 路径：仓库根目录
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
-当前版本：1.1.0（versionCode 2）
+当前版本：1.2.0（versionCode 3）
 
 参考 CX File Explorer 的交互与视觉风格，使用原创代码实现。依赖统一走
 阿里云 Maven 镜像；如需拉取 GitHub 参考项目，建议使用 gitclone、ghproxy
@@ -35,6 +35,9 @@ compileSdk 34 / minSdk 26 / targetSdk 34
    - 阅读设置：字号、行距、纸张/羊皮纸/护眼/深色主题。
    - 文本内置编辑器：UTF-8 / GBK 读取、保存、未保存提醒。
    - 打开方式、分享、APK 安装（FileProvider）。
+   - Root 访问：浏览 /data 等受限路径，支持 Root 文件操作与本地互传。
+   - SMB2/SMB3 与 SFTP 网络存储：添加服务器、浏览、上传、下载、重命名、删除。
+   - 网络密码使用 Android Keystore 加密保存。
 
 3. 分类
    - 图片、视频、音频、文档、下载、安装包、压缩包、最近。
@@ -61,11 +64,23 @@ compileSdk 34 / minSdk 26 / targetSdk 34
    - 所有文件访问权限状态与跳转。
    - 存储分析、浏览根目录、清除最近记录、版本信息。
 
-8. 更新日志
+8. Root 访问
+   - 设置 → Root 访问：开启并授予超级用户权限。
+   - 可浏览 /data、/system 等受限目录，支持新建、重命名、删除。
+   - 支持 Root 与普通存储之间复制/粘贴。
+   - Root 文件打开时会复制到缓存预览，编辑不会写回原文件。
+
+9. 网络存储
+   - 网络标签页支持 SMB2/SMB3 和 SFTP（密码登录）。
+   - 添加/编辑/删除服务器；浏览共享目录、上传、下载、重命名、删除、属性。
+   - 服务器密码使用 Android Keystore 加密保存。
+   - SFTP 暂未验证主机指纹；SMB 仅支持 SMB2/SMB3，不支持 SMB1。
+
+10. 更新日志
    - 设置 → 更新日志，内置中英文版本记录。
    - res/raw/changelog.txt（英文）、res/raw-zh/changelog.txt（中文）。
 
-9. 权限
+11. 权限
    - Android 11+ 使用 “所有文件访问权限”（MANAGE_EXTERNAL_STORAGE）。
    - Android 10 及以下使用 READ/WRITE_EXTERNAL_STORAGE 运行时权限。
 
@@ -126,7 +141,8 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 - 路径处理、名称校验、大小格式化。
 - TXT 章节识别、目录/书签偏移映射、TTS 分句。
 - SharedPreferences 设置 / 书签 / 最近记录 / 阅读进度（Robolectric）。
-- 共 31 项测试。
+- Root ls 输出解析、隐藏文件过滤。
+- 共 33 项测试。
 
 报告：app/build/reports/tests/testDebugUnitTest/index.html
 
@@ -235,6 +251,10 @@ app/src/main/java/com/example/cxfilemanager/
     TtsController.kt Android TTS 封装
     FileOps.kt       纯 Java IO 文件操作（可单元测试）
     FileRepository.kt Android 相关：存储卷、MediaStore、应用、Intent
+    RootShell.kt     Root 命令执行与文件操作
+    RemoteModels.kt  网络存储模型
+    RemoteFileSystem.kt SMB / SFTP 实现
+    SecretStore.kt   网络密码加密
     Prefs.kt         SharedPreferences（设置 / 书签 / 最近记录 / 阅读进度）
   ui/
     AppRoot.kt       权限页、Scaffold、底部导航、Snackbar
@@ -247,9 +267,10 @@ app/src/main/java/com/example/cxfilemanager/
     ViewerScreens.kt 图片查看器、文本编辑器
     ReaderScreen.kt  TXT 阅读器（章节 / 书签 / TTS / 主题）
     ChangelogScreen.kt 更新日志
+    NetworkScreen.kt 网络存储列表、配置与远程浏览
     Components.kt    文件行 / 网格、图标、对话框、底部弹层
     theme/Theme.kt   Material 3 主题
-  util/              格式化、路径、MIME、TXT 章节解析工具
+  util/              格式化、路径、MIME、TXT 章节解析、Root 列表解析工具
 app/src/main/res/    资源与中英文文案、raw 更新日志
 app/src/test/        单元测试 / Robolectric
 scripts/test.sh      单元测试脚本
@@ -259,8 +280,10 @@ scripts/release.sh   发布脚本
 
 十、数据位置与注意事项
 ----------------------
-- 设置、书签、最近记录、阅读进度、阅读书签：
+- 设置、书签、最近记录、阅读进度、阅读书签、网络服务器：
   /data/data/com.example.cxfilemanager/shared_prefs/
+- Root 预览缓存：应用 cache/root_preview/
+- 网络文件预览缓存：应用 cache/remote/
 - 分享 APK 临时文件：应用 cache/shared_apks/
 - 应用不创建自己的回收站，删除即永久删除，删除前会二次确认；
 - Android/data、Android/obb 在 Android 11+ 上仍可能受系统限制；
@@ -286,9 +309,8 @@ scripts/release.sh   发布脚本
 
 十二、后续可扩展
 ----------------
-- 回收站 / 批量重命名规则。
-- FTP / SFTP / SMB / WebDAV / 局域网共享。
+- 回收站、批量重命名。
+- SFTP 密钥登录、主机指纹校验。
 - 云盘（WebDAV / 坚果云等）。
-- Shizuku 或 Root 方式访问 Android/data。
 - 视频内置播放器、更多压缩格式（7z / rar）。
 - 深色 AMOLED、平板双栏布局、文件标签。

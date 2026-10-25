@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -76,7 +77,7 @@ fun HomeScreen(state: AppState) {
                 IconButton(onClick = { state.navigate(Screen.Search(state.repository.defaultRoot())) }) {
                     Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.search))
                 }
-                IconButton(onClick = { state.goTab(3) }) {
+                IconButton(onClick = { state.goTab(4) }) {
                     Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.tab_settings))
                 }
             },
@@ -204,6 +205,13 @@ private fun QuickAccess(state: AppState) {
     ) {
         dirs.filter { it.third.exists() }.forEach { (label, icon, dir) ->
             QuickAccessTile(label = label, icon = icon, onClick = { state.navigate(Screen.Browser(dir.absolutePath)) })
+        }
+        if (state.rootEnabled && state.rootAvailable) {
+            QuickAccessTile(
+                label = stringResource(R.string.root_browse),
+                icon = Icons.Filled.Security,
+                onClick = { state.navigate(Screen.Browser("/")) },
+            )
         }
     }
 }

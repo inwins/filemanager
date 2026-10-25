@@ -15,10 +15,13 @@ class TtsController(
     private var ready = false
     private var pending: (() -> Unit)? = null
     private var generation = 0
-    private var total = 0
-    private var done = 0
+    private var chunks: List<TtsChunk> = emptyList()
+    private var index = 0
+    private var rate = 1f
+    private var locale: Locale = Locale.getDefault()
     private val handler = Handler(Looper.getMainLooper())
     private var watchdog: Runnable? = null
+    private var chunkStarted = false
 
     init {
         tts = TextToSpeech(context.applicationContext) { status ->
@@ -29,24 +32,28 @@ class TtsController(
                     override fun onStart(utteranceId: String?) {
                         val parsed = parseId(utteranceId) ?: return
                         if (parsed.first != generation) return
+                        chunkStarted = true
                         cancelWatchdog()
-                        listener(TtsEvent.Started(parsed.third))
+                        val current = chunks.getOrNull(index)
+                        if (current != null) {
+                            scheduleCompletionWatchdog(current.text)
+                            listener(TtsEvent.Started(current.blockIndex))
+                        }
                     }
 
                     override fun onDone(utteranceId: String?) {
                         val parsed = parseId(utteranceId) ?: return
                         if (parsed.first != generation) return
-                        done++
-                        if (total > 0 && done >= total) {
-                            total = 0
-                            listener(TtsEvent.ChapterFinished)
-                        }
+                        cancelWatchdog()
+                        index++
+                        speakCurrent()
                     }
 
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
                         val parsed = parseId(utteranceId) ?: return
                         if (parsed.first != generation) return
+                        cancelWatchdog()
                         listener(TtsEvent.Error(null))
                     }
                 })
@@ -60,24 +67,26 @@ class TtsController(
         }
     }
 
-    fun speak(chunks: List<TtsChunk>, rate: Float, locale: Locale) {
-        if (chunks.isEmpty()) return
-        val action = { startSpeaking(chunks, rate, locale) }
+    fun speak(newChunks: List<TtsChunk>, rate: Float, locale: Locale) {
+        if (newChunks.isEmpty()) return
+        val action = { startSpeaking(newChunks, rate, locale) }
         if (ready) action() else pending = action
     }
 
-    private fun startSpeaking(chunks: List<TtsChunk>, rate: Float, locale: Locale) {
+    private fun startSpeaking(newChunks: List<TtsChunk>, newRate: Float, newLocale: Locale) {
         val engine = tts
         if (engine == null) {
             listener(TtsEvent.Error(null))
             return
         }
         engine.stop()
+        cancelWatchdog()
         generation++
-        val currentGeneration = generation
-        total = chunks.size
-        done = 0
-        engine.setSpeechRate(rate.coerceIn(0.4f, 2.5f))
+        chunks = newChunks
+        index = 0
+        rate = newRate.coerceIn(0.4f, 2.5f)
+        locale = newLocale
+        engine.setSpeechRate(rate)
         engine.setPitch(1f)
         val language = engine.setLanguage(locale)
         if (language == TextToSpeech.LANG_MISSING_DATA ||
@@ -87,30 +96,64 @@ class TtsController(
             if (fallback == TextToSpeech.LANG_MISSING_DATA ||
                 fallback == TextToSpeech.LANG_NOT_SUPPORTED
             ) {
-                total = 0
                 listener(TtsEvent.Error("language"))
                 return
             }
         }
-        var failed = false
-        for ((index, chunk) in chunks.withIndex()) {
-            if (failed) break
-            val id = "cx:$currentGeneration:$index:${chunk.blockIndex}"
-            val queue = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-            val result = engine.speak(chunk.text, queue, null, id)
-            if (result == TextToSpeech.ERROR) {
-                failed = true
-                total = 0
-                listener(TtsEvent.Error(null))
+        speakCurrent()
+    }
+
+    private fun speakCurrent() {
+        val engine = tts
+        if (engine == null) {
+            listener(TtsEvent.Error(null))
+            return
+        }
+        if (index >= chunks.size) {
+            cancelWatchdog()
+            listener(TtsEvent.ChapterFinished)
+            return
+        }
+        val chunk = chunks[index]
+        val currentGeneration = generation
+        chunkStarted = false
+        val id = "cx:$currentGeneration:$index:${chunk.blockIndex}"
+        val result = engine.speak(chunk.text, TextToSpeech.QUEUE_FLUSH, null, id)
+        if (result == TextToSpeech.ERROR) {
+            listener(TtsEvent.Error(null))
+            return
+        }
+        scheduleStartWatchdog(currentGeneration, index, chunk.text)
+    }
+
+    private fun scheduleStartWatchdog(generation: Int, chunkIndex: Int, text: String) {
+        cancelWatchdog()
+        val runnable = Runnable {
+            if (generation == this.generation && index == chunkIndex && !chunkStarted) {
+                tts?.stop()
+                listener(TtsEvent.Error("no-start"))
             }
         }
-        if (!failed) scheduleWatchdog(currentGeneration)
+        watchdog = runnable
+        val delay = (5000L + text.length * 120L).coerceAtMost(30000L)
+        handler.postDelayed(runnable, delay)
+    }
+
+    private fun scheduleCompletionWatchdog(text: String) {
+        cancelWatchdog()
+        val runnable = Runnable {
+            tts?.stop()
+            listener(TtsEvent.Error("timeout"))
+        }
+        watchdog = runnable
+        val delay = (8000L + (text.length * 300L / rate).toLong()).coerceIn(10000L, 120000L)
+        handler.postDelayed(runnable, delay)
     }
 
     fun stop() {
         generation++
-        total = 0
-        done = 0
+        chunks = emptyList()
+        index = 0
         pending = null
         cancelWatchdog()
         tts?.stop()
@@ -121,18 +164,6 @@ class TtsController(
         tts?.shutdown()
         tts = null
         ready = false
-    }
-
-    private fun scheduleWatchdog(generation: Int) {
-        cancelWatchdog()
-        val runnable = Runnable {
-            if (generation == this.generation && total > 0 && done == 0) {
-                tts?.stop()
-                listener(TtsEvent.Error("no-start"))
-            }
-        }
-        watchdog = runnable
-        handler.postDelayed(runnable, 6000)
     }
 
     private fun cancelWatchdog() {

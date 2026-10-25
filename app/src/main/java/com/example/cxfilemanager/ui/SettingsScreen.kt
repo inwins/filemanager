@@ -122,6 +122,24 @@ fun SettingsScreen(state: AppState) {
             item {
                 SettingsItem(
                     icon = Icons.Filled.Security,
+                    title = stringResource(R.string.root_access),
+                    subtitle = when {
+                        state.rootChecking -> stringResource(R.string.root_checking)
+                        state.rootEnabled && state.rootAvailable -> stringResource(R.string.root_available)
+                        state.rootEnabled -> stringResource(R.string.root_unavailable)
+                        else -> stringResource(R.string.root_not_enabled)
+                    },
+                    trailing = {
+                        Switch(
+                            checked = state.rootEnabled,
+                            onCheckedChange = { state.enableRootAccess(it) },
+                        )
+                    },
+                )
+            }
+            item {
+                SettingsItem(
+                    icon = Icons.Filled.Security,
                     title = stringResource(R.string.all_files_access),
                     subtitle = if (state.permissionGranted) stringResource(R.string.granted)
                     else stringResource(R.string.not_granted),

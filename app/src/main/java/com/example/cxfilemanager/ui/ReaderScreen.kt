@@ -1,6 +1,8 @@
 package com.example.cxfilemanager.ui
 
 import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -141,6 +143,8 @@ fun ReaderScreen(state: AppState, path: String) {
     var ttsBlock by remember { mutableStateOf(-1) }
     var ttsChapter by remember { mutableStateOf(0) }
     var chapterFinished by remember { mutableIntStateOf(0) }
+    var ttsError by remember { mutableStateOf(false) }
+    var ttsHintShown by remember { mutableStateOf(false) }
     var currentBlock by remember { mutableIntStateOf(0) }
     var restored by remember(path) { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -167,7 +171,7 @@ fun ReaderScreen(state: AppState, path: String) {
                 is TtsEvent.Error -> {
                     ttsStatus = TtsStatus.IDLE
                     ttsBlock = -1
-                    state.showMessage(context.getString(R.string.reader_tts_failed))
+                    ttsError = true
                 }
             }
         }
@@ -184,6 +188,10 @@ fun ReaderScreen(state: AppState, path: String) {
         ttsChapter = chapter.index
         ttsStatus = TtsStatus.PLAYING
         ttsBlock = chunks.first().blockIndex
+        if (!ttsHintShown) {
+            ttsHintShown = true
+            state.showMessage(context.getString(R.string.reader_tts_hint))
+        }
         val sample = currentBook.blocks.getOrNull(ttsBlock)?.let { currentBook.blockText(it) }.orEmpty()
         controller.speak(chunks, state.readerSettings.ttsRate, localeFor(sample))
     }
@@ -194,10 +202,12 @@ fun ReaderScreen(state: AppState, path: String) {
                 controller.stop()
                 ttsStatus = TtsStatus.PAUSED
             }
-            TtsStatus.PAUSED -> startReading(ttsChapter, ttsBlock.coerceAtLeast(0))
-            TtsStatus.IDLE -> {
+            TtsStatus.PAUSED, TtsStatus.IDLE -> {
                 val currentBook = book ?: return
-                startReading(currentBook.chapterForBlock(currentBlock), currentBlock)
+                val startBlock = listState.firstVisibleItemIndex
+                    .coerceIn(0, currentBook.blocks.lastIndex.coerceAtLeast(0))
+                currentBlock = startBlock
+                startReading(currentBook.chapterForBlock(startBlock), startBlock)
             }
         }
     }
@@ -237,6 +247,20 @@ fun ReaderScreen(state: AppState, path: String) {
     fun jumpToChapter(chapterIndex: Int) {
         val chapter = book?.chapters?.getOrNull(chapterIndex) ?: return
         scope.launch { listState.animateScrollToItem(chapter.firstBlock) }
+    }
+
+    fun openTtsSettings() {
+        val intents = listOf(
+            Intent("com.android.settings.TTS_SETTINGS"),
+            Intent(Settings.ACTION_SETTINGS),
+        )
+        for (intent in intents) {
+            val ok = runCatching {
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.isSuccess
+            if (ok) return
+        }
+        state.showMessage(context.getString(R.string.reader_tts_failed))
     }
 
     LaunchedEffect(path) {
@@ -527,6 +551,7 @@ fun ReaderScreen(state: AppState, path: String) {
                     startReading(ttsChapter, ttsBlock.coerceAtLeast(0))
                 }
             },
+            onOpenTtsSettings = { openTtsSettings() },
             onDismiss = { showSettings = false },
         )
     }
@@ -557,6 +582,25 @@ fun ReaderScreen(state: AppState, path: String) {
                 ),
             ),
             onDismiss = { showMore = false },
+        )
+    }
+
+    if (ttsError) {
+        AlertDialog(
+            onDismissRequest = { ttsError = false },
+            title = { Text(stringResource(R.string.reader_tts_failed)) },
+            text = { Text(stringResource(R.string.reader_tts_error_detail)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    ttsError = false
+                    openTtsSettings()
+                }) { Text(stringResource(R.string.reader_tts_settings)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { ttsError = false }) {
+                    Text(stringResource(R.string.close))
+                }
+            },
         )
     }
 }
@@ -781,6 +825,7 @@ private fun ReaderSettingsSheet(
     onUpdate: (ReaderSettings) -> Unit,
     onEdit: () -> Unit,
     onRestartTts: () -> Unit,
+    onOpenTtsSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -868,6 +913,12 @@ private fun ReaderSettingsSheet(
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.close))
             }
+        }
+        TextButton(
+            onClick = onOpenTtsSettings,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.reader_tts_settings))
         }
         }
     }

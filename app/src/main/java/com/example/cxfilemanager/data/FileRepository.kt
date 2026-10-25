@@ -12,6 +12,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.os.storage.StorageManager
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
@@ -348,6 +349,23 @@ class FileRepository(private val context: Context) {
             }
         }
         return item.contentUri?.let { runCatching { Uri.parse(it) }.getOrNull() }
+    }
+
+    fun displayName(uri: Uri): String? {
+        return runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+    }
+
+    fun copyUriToFile(uri: Uri, dest: File): Boolean {
+        return runCatching {
+            dest.parentFile?.mkdirs()
+            resolver.openInputStream(uri)?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            } != null
+        }.getOrDefault(false)
     }
 
     fun scan(paths: List<File>) {

@@ -141,7 +141,7 @@ fun fileVisual(item: FileItem): FileVisual {
 @Composable
 fun FileLeadingIcon(item: FileItem, size: Dp = 44.dp, modifier: Modifier = Modifier) {
     val visual = fileVisual(item)
-    if (item.isImage && (item.path.isNotBlank() || item.contentUri != null)) {
+    if (item.isImage && !item.remote && (item.path.isNotBlank() || item.contentUri != null)) {
         Box(
             modifier
                 .size(size)
@@ -276,7 +276,7 @@ fun FileGridItem(
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
             contentAlignment = Alignment.Center,
         ) {
-            if (item.isImage && (item.path.isNotBlank() || item.contentUri != null)) {
+            if (item.isImage && !item.remote && (item.path.isNotBlank() || item.contentUri != null)) {
                 AsyncImage(
                     model = item.path.ifBlank { item.contentUri },
                     contentDescription = null,
@@ -582,7 +582,9 @@ fun PathBreadcrumb(path: String, onNavigate: (String) -> Unit) {
             path == primary -> listOf(internalLabel to primary)
             path.startsWith("$primary/") -> listOf(internalLabel to primary) +
                 raw.filter { it.second != primary && it.second.length > primary.length }
-            else -> raw
+            else -> raw.map { (label, crumb) ->
+                if (crumb == "/") rootLabel to "/" else label to crumb
+            }
         }
     }
     LazyRow(
@@ -942,11 +944,17 @@ fun PropertiesDialog(item: FileItem, repository: FileRepository, onDismiss: () -
                 )
                 InfoRow(stringResource(R.string.file_modified), Format.date(item.lastModified))
                 if (item.path.isNotBlank()) {
-                    val file = File(item.path)
-                    InfoRow(
-                        stringResource(R.string.file_permissions),
-                        if (file.canWrite()) stringResource(R.string.writable) else stringResource(R.string.read_only),
-                    )
+                    val permissions = item.permissions
+                    if (permissions != null) {
+                        InfoRow(stringResource(R.string.file_permissions), permissions)
+                    } else {
+                        val file = File(item.path)
+                        InfoRow(
+                            stringResource(R.string.file_permissions),
+                            if (file.canWrite()) stringResource(R.string.writable)
+                            else stringResource(R.string.read_only),
+                        )
+                    }
                     InfoRow(stringResource(R.string.file_path), item.path)
                 } else if (item.contentUri != null) {
                     InfoRow(stringResource(R.string.file_path), item.contentUri ?: "")

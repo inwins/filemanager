@@ -93,7 +93,7 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
         error = false
         val result = withContext(Dispatchers.IO) {
             runCatching {
-                state.repository.list(screen.path, state.settings.showHidden, state.settings.sortSpec)
+                state.listFiles(screen.path, state.settings.showHidden, state.settings.sortSpec)
             }
         }
         result.onSuccess {

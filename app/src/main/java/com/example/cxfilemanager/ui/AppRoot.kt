@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -84,7 +85,8 @@ fun AppRoot(state: AppState) {
     }
     val current = state.current
     val showBottomBar = state.backStack.size == 1 &&
-        (current is Screen.Home || current is Screen.Browser || current is Screen.Categories || current is Screen.Settings)
+        (current is Screen.Home || current is Screen.Browser || current is Screen.Categories ||
+            current is Screen.Network || current is Screen.Settings)
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -94,7 +96,8 @@ fun AppRoot(state: AppState) {
                     is Screen.Home -> 0
                     is Screen.Browser -> 1
                     is Screen.Categories -> 2
-                    is Screen.Settings -> 3
+                    is Screen.Network, is Screen.RemoteBrowser -> 3
+                    is Screen.Settings -> 4
                     else -> -1
                 }
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
@@ -117,10 +120,16 @@ fun AppRoot(state: AppState) {
                         onClick = { state.goTab(2) },
                     )
                     BottomItem(
-                        label = stringResource(R.string.tab_settings),
-                        icon = Icons.Filled.Settings,
+                        label = stringResource(R.string.tab_network),
+                        icon = Icons.Filled.Cloud,
                         selected = selected == 3,
                         onClick = { state.goTab(3) },
+                    )
+                    BottomItem(
+                        label = stringResource(R.string.tab_settings),
+                        icon = Icons.Filled.Settings,
+                        selected = selected == 4,
+                        onClick = { state.goTab(4) },
                     )
                 }
             }
@@ -144,6 +153,8 @@ fun AppRoot(state: AppState) {
                 is Screen.TextEditor -> TextEditorScreen(state, current.path)
                 is Screen.Reader -> ReaderScreen(state, current.path)
                 is Screen.Changelog -> ChangelogScreen(state)
+                is Screen.Network -> NetworkScreen(state)
+                is Screen.RemoteBrowser -> RemoteBrowserScreen(state, current)
             }
         }
     }

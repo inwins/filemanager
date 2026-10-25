@@ -28,6 +28,9 @@ data class FileItem(
     val mime: String? = null,
     val contentUri: String? = null,
     val childCount: Int? = null,
+    val permissions: String? = null,
+    val root: Boolean = false,
+    val remote: Boolean = false,
 ) {
     val isHidden: Boolean get() = name.startsWith(".")
     val extension: String get() = name.substringAfterLast('.', "").lowercase()
