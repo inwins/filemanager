@@ -317,4 +317,13 @@
 
     <string name="network_preparing">Preparing…</string>
     <string name="operation_cancelling">Cancelling…</string>
+
+    <string name="stream_forwarding">Forwarding media to another app</string>
+    <string name="stream_stop">Stop streaming</string>
+    <string name="stream_channel_name">Media streaming</string>
+    <string name="stream_play_other">Play in another app</string>
+    <string name="stream_copy_url">Copy stream URL</string>
+    <string name="stream_url_copied">Stream URL copied</string>
+    <string name="stream_start_failed">Cannot start streaming server</string>
+    <string name="stream_chooser">Play stream with</string>
 </resources>

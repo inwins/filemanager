@@ -317,4 +317,13 @@
 
     <string name="network_preparing">正在准备…</string>
     <string name="operation_cancelling">正在取消…</string>
+
+    <string name="stream_forwarding">正在转发媒体到其他应用</string>
+    <string name="stream_stop">停止转发</string>
+    <string name="stream_channel_name">媒体转发</string>
+    <string name="stream_play_other">用其他应用播放</string>
+    <string name="stream_copy_url">复制流媒体地址</string>
+    <string name="stream_url_copied">流媒体地址已复制</string>
+    <string name="stream_start_failed">无法启动流媒体服务</string>
+    <string name="stream_chooser">选择播放应用</string>
 </resources>

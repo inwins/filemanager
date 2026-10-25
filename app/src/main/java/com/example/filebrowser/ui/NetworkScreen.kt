@@ -1,6 +1,11 @@
 package com.example.filebrowser.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
 import android.os.Environment
+import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +38,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
@@ -40,7 +46,9 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -84,8 +92,13 @@ import com.example.filebrowser.data.RemoteEntry
 import com.example.filebrowser.data.RemoteCancelledException
 import com.example.filebrowser.data.RemoteFileSystem
 import com.example.filebrowser.data.RemoteFileSystems
+import com.example.filebrowser.data.RemoteTransfer
 import com.example.filebrowser.data.RemoteProfile
 import com.example.filebrowser.data.RemoteProtocol
+import com.example.filebrowser.stream.RemoteStreamServer
+import com.example.filebrowser.stream.RemoteStreamService
+import com.example.filebrowser.stream.StreamRegistry
+import com.example.filebrowser.util.MimeTypes
 import com.example.filebrowser.util.Format
 import java.io.File
 import java.util.UUID
@@ -450,6 +463,9 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
     var deleteEntry by remember { mutableStateOf<RemoteEntry?>(null) }
     var propertiesEntry by remember { mutableStateOf<RemoteEntry?>(null) }
     var showNewFolder by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showDeleteSelected by remember { mutableStateOf(false) }
+    var showSelectionMore by remember { mutableStateOf(false) }
 
     fun goUp() {
         if (currentPath == "/") {
@@ -459,7 +475,10 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         }
     }
 
-    BackHandler { goUp() }
+    BackHandler {
+        if (selected.isNotEmpty()) selected = emptySet() else goUp()
+    }
+    LaunchedEffect(currentPath) { selected = emptySet() }
 
     fun beginTask(title: String, total: Long, detail: String, cancellable: Boolean = total > 0) {
         cancelRequested = false
@@ -666,6 +685,225 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         }
     }
 
+    fun toggleSelection(path: String) {
+        selected = if (path in selected) selected - path else selected + path
+    }
+
+    fun startStream(entry: RemoteEntry, copyUrl: Boolean) {
+        if (entry.isDirectory) return
+        val media = entry.toFileItem()
+        if (!media.isAudio && !media.isVideo) return
+        val mime = media.mime ?: if (media.isVideo) "video/*" else if (media.isAudio) "audio/*" else "*/*"
+        val token = StreamRegistry.register(
+            profileId = profile.id,
+            remotePath = entry.path,
+            name = entry.name,
+            mime = mime,
+            size = entry.size,
+        )
+        val port = runCatching { RemoteStreamServer.start(context) }.getOrElse {
+            state.showMessage(context.getString(R.string.stream_start_failed))
+            return
+        }
+        RemoteStreamService.start(context)
+        val url = "http://127.0.0.1:$port/stream/$token"
+        if (copyUrl) {
+            val clipboard = context.getSystemService(ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(ClipData.newPlainText(entry.name, url))
+            state.showMessage(context.getString(R.string.stream_url_copied))
+        } else {
+            val intent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(Uri.parse(url), mime)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runCatching {
+                context.startActivity(
+                    Intent.createChooser(intent, context.getString(R.string.stream_chooser))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }.onFailure {
+                state.showMessage(context.getString(R.string.open_failed))
+            }
+        }
+    }
+
+    fun deleteSelected(items: List<RemoteEntry>) {
+        val system = fs ?: return
+        if (items.isEmpty()) return
+        scope.launch {
+            beginTask(
+                context.getString(R.string.delete_progress),
+                0,
+                context.getString(R.string.items_count, items.size),
+                cancellable = true,
+            )
+            var success = 0
+            withContext(Dispatchers.IO) {
+                for (entry in items) {
+                    if (cancelRequested) break
+                    task = task?.copy(detail = entry.name)
+                    if (runCatching { system.delete(entry.path, entry.isDirectory) }.isSuccess) {
+                        success++
+                    }
+                }
+            }
+            val cancelled = cancelRequested
+            refreshTick++
+            finishTask(
+                context.getString(
+                    when {
+                        cancelled -> R.string.operation_cancelled
+                        success > 0 -> R.string.network_deleted
+                        else -> R.string.network_delete_failed
+                    }
+                )
+            )
+        }
+    }
+
+    fun pasteRemoteToRemote(remote: com.example.filebrowser.data.RemoteClipboard) {
+        val target = fs ?: return
+        val sourceProfile = state.remoteProfile(remote.profileId)
+        if (sourceProfile == null) {
+            state.showMessage(context.getString(R.string.network_connection_failed))
+            return
+        }
+        val moving = remote.op == com.example.filebrowser.data.ClipboardOp.MOVE
+        val total = remote.items.sumOf { if (it.isDirectory) 0L else it.size }
+        scope.launch {
+            beginTask(
+                context.getString(if (moving) R.string.move_progress else R.string.copy_progress),
+                total,
+                context.getString(R.string.items_count, remote.items.size),
+            )
+            val source = withContext(Dispatchers.IO) {
+                runCatching { RemoteFileSystems.open(sourceProfile) }.getOrNull()
+            }
+            if (source == null) {
+                finishTask(context.getString(R.string.network_connection_failed))
+                return@launch
+            }
+            var success = 0
+            var base = 0L
+            try {
+                withContext(Dispatchers.IO) {
+                    for (entry in remote.items) {
+                        if (cancelRequested) break
+                        task = task?.copy(detail = entry.name)
+                        val entryBase = base
+                        val ok = RemoteTransfer.remoteToRemote(
+                            source = source,
+                            entry = entry,
+                            target = target,
+                            targetDir = currentPath,
+                            onProgress = { done ->
+                                task = task?.copy(
+                                    done = (entryBase + done).coerceAtMost(
+                                        if (total > 0) total else Long.MAX_VALUE
+                                    )
+                                )
+                            },
+                            shouldContinue = { !cancelRequested },
+                        )
+                        if (ok) {
+                            success++
+                            if (moving) runCatching { source.delete(entry.path, entry.isDirectory) }
+                        }
+                        base += if (entry.isDirectory) 0 else entry.size
+                    }
+                }
+            } finally {
+                runCatching { source.close() }
+            }
+            val cancelled = cancelRequested
+            if (moving && success > 0) state.clearClipboard()
+            refreshTick++
+            finishTask(
+                context.getString(
+                    when {
+                        cancelled -> R.string.operation_cancelled
+                        success > 0 -> if (moving) R.string.moved else R.string.copied
+                        else -> R.string.operation_failed
+                    },
+                    success,
+                )
+            )
+        }
+    }
+
+    fun pasteLocalToRemote(clip: com.example.filebrowser.data.Clipboard) {
+        val target = fs ?: return
+        val items = clip.items.filter { it.path.isNotBlank() }
+        if (items.isEmpty()) {
+            state.showMessage(context.getString(R.string.nothing_to_paste))
+            return
+        }
+        val moving = clip.op == com.example.filebrowser.data.ClipboardOp.MOVE
+        val total = items.sumOf { if (it.isDirectory) 0L else File(it.path).length() }
+        scope.launch {
+            beginTask(
+                context.getString(if (moving) R.string.move_progress else R.string.copy_progress),
+                total,
+                context.getString(R.string.items_count, items.size),
+            )
+            var success = 0
+            var base = 0L
+            withContext(Dispatchers.IO) {
+                for (item in items) {
+                    if (cancelRequested) break
+                    val source = File(item.path)
+                    if (!source.exists()) continue
+                    task = task?.copy(detail = source.name)
+                    val entryBase = base
+                    val ok = RemoteTransfer.localToRemote(
+                        source = source,
+                        target = target,
+                        targetDir = currentPath,
+                        onProgress = { done ->
+                            task = task?.copy(
+                                done = (entryBase + done).coerceAtMost(
+                                    if (total > 0) total else Long.MAX_VALUE
+                                )
+                            )
+                        },
+                        shouldContinue = { !cancelRequested },
+                    )
+                    if (ok) {
+                        success++
+                        if (moving) com.example.filebrowser.data.FileOps.deleteRecursive(source)
+                    }
+                    base += if (source.isDirectory) 0 else source.length()
+                }
+            }
+            val cancelled = cancelRequested
+            if (moving && success > 0) state.clearClipboard()
+            refreshTick++
+            finishTask(
+                context.getString(
+                    when {
+                        cancelled -> R.string.operation_cancelled
+                        success > 0 -> if (moving) R.string.moved else R.string.copied
+                        else -> R.string.operation_failed
+                    },
+                    success,
+                )
+            )
+        }
+    }
+
+    fun pasteHere() {
+        val remote = state.remoteClipboard
+        if (remote != null) {
+            pasteRemoteToRemote(remote)
+            return
+        }
+        val local = state.clipboard
+        if (local != null) {
+            pasteLocalToRemote(local)
+            return
+        }
+        state.showMessage(context.getString(R.string.nothing_to_paste))
+    }
+
     fun createFolder(name: String) {
         val system = fs ?: return
         scope.launch {
@@ -746,7 +984,32 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         }
     }
 
+    val selectedEntries = entries.filter { it.path in selected }
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+        if (selected.isNotEmpty()) {
+            SelectionActionBar(
+                count = selected.size,
+                onClose = { selected = emptySet() },
+                onCopy = {
+                    state.setRemoteClipboard(
+                        com.example.filebrowser.data.ClipboardOp.COPY,
+                        profile.id,
+                        selectedEntries,
+                    )
+                    selected = emptySet()
+                },
+                onCut = {
+                    state.setRemoteClipboard(
+                        com.example.filebrowser.data.ClipboardOp.MOVE,
+                        profile.id,
+                        selectedEntries,
+                    )
+                    selected = emptySet()
+                },
+                onDelete = { showDeleteSelected = true },
+                onMore = { showSelectionMore = true },
+            )
+        } else {
         TopAppBar(
             navigationIcon = {
                 IconButton(onClick = { goUp() }) {
@@ -777,6 +1040,7 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                 }
             },
         )
+        }
         RemoteBreadcrumb(
             path = currentPath,
             rootLabel = if (profile.protocol == RemoteProtocol.SMB) profile.share.ifBlank { "/" }
@@ -831,26 +1095,40 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                         val item = entry.toFileItem()
                         FileRow(
                             item = item,
-                            selected = false,
-                            selectionMode = false,
                             showPath = false,
+                            selectionMode = selected.isNotEmpty(),
+                            selected = entry.path in selected,
                             onClick = {
-                                if (entry.isDirectory) currentPath = entry.path else menuEntry = entry
+                                if (selected.isNotEmpty()) {
+                                    toggleSelection(entry.path)
+                                } else if (entry.isDirectory) {
+                                    currentPath = entry.path
+                                } else {
+                                    menuEntry = entry
+                                }
                             },
-                            onLongClick = { menuEntry = entry },
+                            onLongClick = { toggleSelection(entry.path) },
                         )
                     }
                 }
             }
+        }
+        val clipCount = state.remoteClipboard?.items?.size ?: state.clipboard?.items?.size ?: 0
+        if (selected.isEmpty() && clipCount > 0) {
+            ClipboardBar(
+                count = clipCount,
+                onPaste = { pasteHere() },
+                onClear = { state.clearClipboard() },
+            )
         }
     }
 
     menuEntry?.let { entry ->
         RemoteEntryActionsDialog(
             entry = entry,
-            onOpen = {
-                openEntry(entry)
-            },
+            onOpen = { openEntry(entry) },
+            onStream = { startStream(entry, copyUrl = false) },
+            onCopyStream = { startStream(entry, copyUrl = true) },
             onDownload = { downloadToDevice(entry) },
             onRename = { renameEntry = entry },
             onProperties = { propertiesEntry = entry },
@@ -889,6 +1167,69 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
 
     propertiesEntry?.let { entry ->
         RemotePropertiesDialog(profile, entry) { propertiesEntry = null }
+    }
+
+    if (showDeleteSelected) {
+        DeleteConfirmDialog(
+            count = selectedEntries.size,
+            onDismiss = { showDeleteSelected = false },
+            onConfirm = {
+                deleteSelected(selectedEntries)
+                selected = emptySet()
+            },
+        )
+    }
+
+    if (showSelectionMore) {
+        val single = selectedEntries.singleOrNull()
+        AlertDialog(
+            onDismissRequest = { showSelectionMore = false },
+            title = { Text(stringResource(R.string.more)) },
+            text = {
+                Column {
+                    RemoteActionRow(Icons.Filled.SelectAll, stringResource(R.string.select_all)) {
+                        selected = entries.map { it.path }.toSet()
+                        showSelectionMore = false
+                    }
+                    RemoteActionRow(Icons.Filled.SelectAll, stringResource(R.string.invert_selection)) {
+                        selected = entries.map { it.path }.toSet() - selected
+                        showSelectionMore = false
+                    }
+                    RemoteActionRow(
+                        Icons.Filled.Edit,
+                        stringResource(R.string.rename),
+                        enabled = single != null,
+                    ) {
+                        if (single != null) {
+                            renameEntry = single
+                            selected = emptySet()
+                        }
+                        showSelectionMore = false
+                    }
+                    RemoteActionRow(
+                        Icons.Filled.Download,
+                        stringResource(R.string.network_download),
+                        enabled = single != null && !single.isDirectory,
+                    ) {
+                        if (single != null) downloadToDevice(single)
+                        showSelectionMore = false
+                    }
+                    RemoteActionRow(
+                        Icons.Filled.Info,
+                        stringResource(R.string.properties),
+                        enabled = single != null,
+                    ) {
+                        if (single != null) propertiesEntry = single
+                        showSelectionMore = false
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSelectionMore = false }) {
+                    Text(stringResource(R.string.close))
+                }
+            },
+        )
     }
 
     task?.let { current ->
@@ -944,12 +1285,16 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
 private fun RemoteEntryActionsDialog(
     entry: RemoteEntry,
     onOpen: () -> Unit,
+    onStream: () -> Unit,
+    onCopyStream: () -> Unit,
     onDownload: () -> Unit,
     onRename: () -> Unit,
     onProperties: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val media = entry.toFileItem()
+    val isMedia = !entry.isDirectory && (media.isAudio || media.isVideo)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -958,6 +1303,14 @@ private fun RemoteEntryActionsDialog(
                 RemoteActionRow(Icons.Filled.Folder, stringResource(R.string.open)) {
                     onDismiss()
                     onOpen()
+                }
+                RemoteActionRow(Icons.Filled.PlayCircle, stringResource(R.string.stream_play_other), enabled = isMedia) {
+                    onDismiss()
+                    onStream()
+                }
+                RemoteActionRow(Icons.Filled.ContentCopy, stringResource(R.string.stream_copy_url), enabled = isMedia) {
+                    onDismiss()
+                    onCopyStream()
                 }
                 RemoteActionRow(Icons.Filled.Download, stringResource(R.string.network_download), enabled = !entry.isDirectory) {
                     onDismiss()

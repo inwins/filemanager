@@ -15,6 +15,12 @@ data class RemoteProfile(
     val rootPath: String = "/",
 )
 
+data class RemoteClipboard(
+    val op: ClipboardOp,
+    val profileId: String,
+    val items: List<RemoteEntry>,
+)
+
 data class RemoteEntry(
     val path: String,
     val name: String,

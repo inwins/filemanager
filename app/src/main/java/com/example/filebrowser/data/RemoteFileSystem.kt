@@ -17,6 +17,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.util.EnumSet
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -40,10 +41,18 @@ interface RemoteFileSystem : Closeable {
         onBytes: (Long) -> Unit = {},
         shouldContinue: () -> Boolean = { true },
     )
+    fun uploadStream(
+        input: InputStream,
+        destPath: String,
+        totalSize: Long = -1L,
+        onBytes: (Long) -> Unit = {},
+        shouldContinue: () -> Boolean = { true },
+    )
     fun mkdir(path: String)
     fun delete(path: String, isDirectory: Boolean)
     fun rename(oldPath: String, newPath: String)
     fun exists(path: String): Boolean
+    fun openStream(path: String, offset: Long = 0L): java.io.InputStream
 }
 
 object RemoteFileSystems {
@@ -167,6 +176,18 @@ class SmbRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSystem
         onBytes: (Long) -> Unit,
         shouldContinue: () -> Boolean,
     ) {
+        FileInputStream(src).use { input ->
+            uploadStream(input, destPath, src.length(), onBytes, shouldContinue)
+        }
+    }
+
+    override fun uploadStream(
+        input: InputStream,
+        destPath: String,
+        totalSize: Long,
+        onBytes: (Long) -> Unit,
+        shouldContinue: () -> Boolean,
+    ) {
         try {
             val file = share.openFile(
                 toSmb(destPath),
@@ -177,22 +198,20 @@ class SmbRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSystem
                 null,
             )
             file.use {
-                FileInputStream(src).use { input ->
-                    val buffer = ByteArray(64 * 1024)
-                    var offset = 0L
-                    while (true) {
-                        if (!shouldContinue()) throw RemoteCancelledException()
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        var written = 0
-                        while (written < read) {
-                            val count = it.write(buffer, offset + written, written, read - written)
-                            if (count <= 0) throw RemoteException("SMB write failed")
-                            written += count.toInt()
-                        }
-                        offset += read
-                        onBytes(offset)
+                val buffer = ByteArray(64 * 1024)
+                var offset = 0L
+                while (true) {
+                    if (!shouldContinue()) throw RemoteCancelledException()
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    var written = 0
+                    while (written < read) {
+                        val count = it.write(buffer, offset + written, written, read - written)
+                        if (count <= 0) throw RemoteException("SMB write failed")
+                        written += count.toInt()
                     }
+                    offset += read
+                    onBytes(offset)
                 }
             }
         } catch (error: RemoteCancelledException) {
@@ -255,6 +274,38 @@ class SmbRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSystem
             smbPath.isEmpty() || share.folderExists(smbPath) || share.fileExists(smbPath)
         } catch (_: Exception) {
             false
+        }
+    }
+
+    override fun openStream(path: String, offset: Long): java.io.InputStream {
+        val smbFile = share.openFile(
+            toSmb(path),
+            EnumSet.of(AccessMask.GENERIC_READ),
+            null,
+            SMB2ShareAccess.ALL,
+            SMB2CreateDisposition.FILE_OPEN,
+            null,
+        )
+        return object : java.io.InputStream() {
+            private var position = offset
+
+            override fun read(): Int {
+                val one = ByteArray(1)
+                val count = read(one, 0, 1)
+                return if (count <= 0) -1 else one[0].toInt() and 0xFF
+            }
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (len == 0) return 0
+                val count = smbFile.read(b, position, off, len)
+                if (count <= 0) return -1
+                position += count
+                return count
+            }
+
+            override fun close() {
+                runCatching { smbFile.close() }
+            }
         }
     }
 
@@ -338,11 +389,21 @@ class SftpRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSyste
         onBytes: (Long) -> Unit,
         shouldContinue: () -> Boolean,
     ) {
+        FileInputStream(src).use { input ->
+            uploadStream(input, destPath, src.length(), onBytes, shouldContinue)
+        }
+    }
+
+    override fun uploadStream(
+        input: InputStream,
+        destPath: String,
+        totalSize: Long,
+        onBytes: (Long) -> Unit,
+        shouldContinue: () -> Boolean,
+    ) {
         try {
-            FileInputStream(src).use { raw ->
-                val input = ProgressInputStream(raw, onBytes, shouldContinue)
-                channel.put(input, destPath)
-            }
+            val progressInput = ProgressInputStream(input, onBytes, shouldContinue)
+            channel.put(progressInput, destPath)
         } catch (error: RemoteCancelledException) {
             throw error
         } catch (error: Exception) {
@@ -393,6 +454,10 @@ class SftpRemoteFileSystem(private val profile: RemoteProfile) : RemoteFileSyste
         } catch (_: Exception) {
             false
         }
+    }
+
+    override fun openStream(path: String, offset: Long): java.io.InputStream {
+        return channel.get(path, null, offset)
     }
 
     override fun close() {

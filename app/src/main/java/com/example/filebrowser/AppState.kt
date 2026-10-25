@@ -24,7 +24,10 @@ import com.example.filebrowser.data.OperationState
 import com.example.filebrowser.data.Prefs
 import com.example.filebrowser.data.ReaderSettings
 import com.example.filebrowser.data.RecentEntry
+import com.example.filebrowser.data.RemoteClipboard
+import com.example.filebrowser.data.RemoteFileSystems
 import com.example.filebrowser.data.RemoteProfile
+import com.example.filebrowser.data.RemoteTransfer
 import com.example.filebrowser.data.RootShell
 import com.example.filebrowser.data.SortField
 import com.example.filebrowser.data.SortOrder
@@ -61,6 +64,8 @@ class AppState(context: Context) {
     var permissionGranted by mutableStateOf(hasStoragePermission())
         private set
     var clipboard by mutableStateOf<Clipboard?>(null)
+        private set
+    var remoteClipboard by mutableStateOf<RemoteClipboard?>(null)
         private set
     var operation by mutableStateOf<OperationState?>(null)
         private set
@@ -311,6 +316,17 @@ class AppState(context: Context) {
     fun setClipboard(op: ClipboardOp, items: List<FileItem>) {
         if (items.isEmpty()) return
         clipboard = Clipboard(op, items)
+        remoteClipboard = null
+        message = appContext.getString(
+            if (op == ClipboardOp.COPY) R.string.clipboard_copied else R.string.clipboard_cut,
+            items.size,
+        )
+    }
+
+    fun setRemoteClipboard(op: ClipboardOp, profileId: String, items: List<com.example.filebrowser.data.RemoteEntry>) {
+        if (items.isEmpty()) return
+        remoteClipboard = RemoteClipboard(op, profileId, items)
+        clipboard = null
         message = appContext.getString(
             if (op == ClipboardOp.COPY) R.string.clipboard_copied else R.string.clipboard_cut,
             items.size,
@@ -319,6 +335,7 @@ class AppState(context: Context) {
 
     fun clearClipboard() {
         clipboard = null
+        remoteClipboard = null
     }
 
     fun openItem(
@@ -477,6 +494,11 @@ class AppState(context: Context) {
     }
 
     fun paste(destPath: String) {
+        val remote = remoteClipboard
+        if (remote != null) {
+            pasteRemoteToLocal(remote, destPath)
+            return
+        }
         val clip = clipboard
         if (clip == null) {
             message = appContext.getString(R.string.nothing_to_paste)
@@ -521,6 +543,42 @@ class AppState(context: Context) {
             if (moving && success > 0) clipboard = null
             if (success == 0) null
             else appContext.getString(if (moving) R.string.moved else R.string.copied, success)
+        }
+    }
+
+    private fun pasteRemoteToLocal(remote: RemoteClipboard, destPath: String) {
+        val profile = remoteProfile(remote.profileId)
+        if (profile == null) {
+            message = appContext.getString(R.string.network_connection_failed)
+            return
+        }
+        val moving = remote.op == ClipboardOp.MOVE
+        runOperation(if (moving) R.string.move_progress else R.string.copy_progress) { update, shouldContinue ->
+            val system = runCatching { RemoteFileSystems.open(profile) }.getOrNull()
+            if (system == null) return@runOperation null
+            try {
+                var success = 0
+                for (entry in remote.items) {
+                    if (!shouldContinue()) break
+                    update(entry.name)
+                    val ok = RemoteTransfer.remoteToLocal(
+                        source = system,
+                        entry = entry,
+                        destDir = File(destPath),
+                        shouldContinue = shouldContinue,
+                    )
+                    if (ok) {
+                        success++
+                        if (moving) system.delete(entry.path, entry.isDirectory)
+                    }
+                }
+                repository.scan(listOf(File(destPath)))
+                if (moving && success > 0) remoteClipboard = null
+                if (success == 0) null
+                else appContext.getString(if (moving) R.string.moved else R.string.copied, success)
+            } finally {
+                runCatching { system.close() }
+            }
         }
     }
 

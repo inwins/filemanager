@@ -255,9 +255,10 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
             }
         }
 
-        if (state.clipboard != null && selected.isEmpty()) {
+        val clipCount = state.remoteClipboard?.items?.size ?: state.clipboard?.items?.size ?: 0
+        if (clipCount > 0 && selected.isEmpty()) {
             ClipboardBar(
-                count = state.clipboard?.items?.size ?: 0,
+                count = clipCount,
                 onPaste = { state.paste(screen.path) },
                 onClear = { state.clearClipboard() },
             )

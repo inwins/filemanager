@@ -1,3 +1,11 @@
+v1.5.0
+- Added multi-select in remote SMB/SFTP directories with copy, cut and delete.
+- Remote clipboard can paste to another remote folder or to local storage; local files can also be pasted into remote folders.
+- Added a loopback HTTP streaming server with Range support, so videos/audio can be handed to VLC or other players without downloading first.
+- Added "Play in another app" and "Copy stream URL" actions for remote media.
+- Streaming runs in a foreground service with a notification and a stop action.
+- The streaming server listens on 127.0.0.1 only.
+
 v1.4.1
 - Tapping a remote file now opens an action dialog instead of downloading immediately, preventing accidental downloads.
 - Added a determinate progress bar with percentage for SMB/SFTP downloads and uploads.
