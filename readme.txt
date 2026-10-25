@@ -1,13 +1,13 @@
-CX 文件管理器（仿制版）—— 构建说明
+文件浏览器 —— 构建说明
 ====================================
 
-项目：com.example.cxfilemanager
+项目：com.example.filebrowser
 路径：仓库根目录
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
-当前版本：1.2.0（versionCode 3）
+当前版本：1.3.0（versionCode 5）
 
-参考 CX File Explorer 的交互与视觉风格，使用原创代码实现。依赖统一走
+界面与交互参考主流文件管理器，使用原创代码实现。依赖统一走
 阿里云 Maven 镜像；如需拉取 GitHub 参考项目，建议使用 gitclone、ghproxy
 等镜像，避免直连失败。
 
@@ -33,6 +33,8 @@ compileSdk 34 / minSdk 26 / targetSdk 34
    - 阅读书签：按书籍保存、添加、跳转、删除。
    - TTS 语音朗读：当前页开始、暂停/继续、停止、自动下一章、语速调节。
    - 阅读设置：字号、行距、纸张/羊皮纸/护眼/深色主题。
+   - 内置音频播放器：专辑封面、元数据、播放列表、进度、上一首/下一首、底部迷你播放条。
+   - 本地、Root、SMB、SFTP 音频可直接在应用内播放（远程音频先缓存）。
    - 文本内置编辑器：UTF-8 / GBK 读取、保存、未保存提醒。
    - 打开方式、分享、APK 安装（FileProvider）。
    - Root 访问：浏览 /data 等受限路径，支持 Root 文件操作与本地互传。
@@ -186,18 +188,18 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 3. 本机 MIUI 推荐方式（adb install 偶发失败时）：
 
     ADB=~/sdk/platform-tools/adb
-    $ADB push app/build/outputs/apk/debug/app-debug.apk /data/local/tmp/cxfilemanager.apk
-    $ADB shell "su -c 'pm install -r /data/local/tmp/cxfilemanager.apk'"
+    $ADB push app/build/outputs/apk/debug/app-debug.apk /data/local/tmp/filebrowser.apk
+    $ADB shell "su -c 'pm install -r /data/local/tmp/filebrowser.apk'"
 
 4. 授权（Android 11）：
 
-    $ADB shell "su -c 'appops set com.example.cxfilemanager MANAGE_EXTERNAL_STORAGE allow'"
+    $ADB shell "su -c 'appops set com.example.filebrowser MANAGE_EXTERNAL_STORAGE allow'"
 
    也可以打开应用后点击“去授权”，在系统设置中开启“所有文件访问权限”。
 
 5. 启动：
 
-    $ADB shell am start -n com.example.cxfilemanager/.MainActivity
+    $ADB shell am start -n com.example.filebrowser/.MainActivity
 
 重要：
 - 使用 -r 覆盖安装可保留设置、书签和最近记录；
@@ -232,19 +234,19 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 
 查看日志：
 
-    ~/sdk/platform-tools/adb logcat | grep -i cxfilemanager
+    ~/sdk/platform-tools/adb logcat | grep -i filebrowser
 
 强制停止：
 
-    ~/sdk/platform-tools/adb shell am force-stop com.example.cxfilemanager
+    ~/sdk/platform-tools/adb shell am force-stop com.example.filebrowser
 
 
 九、目录结构
 ------------
-app/src/main/java/com/example/cxfilemanager/
+app/src/main/java/com/example/filebrowser/
   AppState.kt        全局状态、导航栈、剪贴板、文件操作调度
   MainActivity.kt    权限申请与 Compose 入口
-  CxFileApp.kt       Application
+  FileBrowserApp.kt Application
   data/
     Models.kt        数据模型（FileItem / StorageItem / 设置等）
     ReaderModels.kt  阅读器模型（章节、书签、TTS 事件）
@@ -281,7 +283,7 @@ scripts/release.sh   发布脚本
 十、数据位置与注意事项
 ----------------------
 - 设置、书签、最近记录、阅读进度、阅读书签、网络服务器：
-  /data/data/com.example.cxfilemanager/shared_prefs/
+  /data/data/com.example.filebrowser/shared_prefs/
 - Root 预览缓存：应用 cache/root_preview/
 - 网络文件预览缓存：应用 cache/remote/
 - 分享 APK 临时文件：应用 cache/shared_apks/

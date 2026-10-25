@@ -14,15 +14,15 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.cxfilemanager"
+    namespace = "com.example.filebrowser"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.cxfilemanager"
+        applicationId = "com.example.filebrowser"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -101,6 +101,7 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("com.hierynomus:smbj:0.13.0")
     implementation("com.github.mwiede:jsch:0.2.17")
 

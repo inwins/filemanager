@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">CX File Manager</string>
+    <string name="app_name">File Browser</string>
 
     <string name="tab_home">Home</string>
     <string name="tab_files">Files</string>
@@ -140,7 +140,7 @@
     <string name="recent_cleared">Recent list cleared</string>
     <string name="about">About</string>
     <string name="version">Version %1$s</string>
-    <string name="about_text">A lightweight file manager inspired by CX File Explorer. Browse, search, organize, compress and extract files on internal and external storage.</string>
+    <string name="about_text">A lightweight file manager for browsing, searching, organizing, compressing and extracting files on internal and external storage.</string>
     <string name="open_source">Built with Kotlin and Jetpack Compose.</string>
     <string name="permission_settings_hint">If the settings page does not open, enable it manually: Settings → Apps → Special access → All files access.</string>
 
@@ -299,4 +299,14 @@
     <string name="network_remote_path">Remote path</string>
     <string name="network_root">Root</string>
     <string name="network_storage">Storage</string>
+
+    <string name="audio_now_playing">Now playing</string>
+    <string name="audio_unknown_artist">Unknown artist</string>
+    <string name="audio_playlist">Playlist</string>
+    <string name="audio_play">Play</string>
+    <string name="audio_pause">Pause</string>
+    <string name="audio_previous">Previous</string>
+    <string name="audio_next">Next</string>
+    <string name="audio_close">Close player</string>
+    <string name="audio_no_track">No audio track selected</string>
 </resources>

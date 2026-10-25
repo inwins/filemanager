@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">CX 文件管理器</string>
+    <string name="app_name">文件浏览器</string>
 
     <string name="tab_home">首页</string>
     <string name="tab_files">文件</string>
@@ -140,7 +140,7 @@
     <string name="recent_cleared">最近记录已清除</string>
     <string name="about">关于</string>
     <string name="version">版本 %1$s</string>
-    <string name="about_text">一款参考 CX 文件管理器设计的轻量文件管理器。支持浏览、搜索、整理、压缩和解压内部与外部存储中的文件。</string>
+    <string name="about_text">一款轻量文件管理器。支持浏览、搜索、整理、压缩和解压内部与外部存储中的文件。</string>
     <string name="open_source">使用 Kotlin 与 Jetpack Compose 构建。</string>
     <string name="permission_settings_hint">如果设置页面没有打开，请手动前往：设置 → 应用 → 特殊权限 → 所有文件访问权限。</string>
 
@@ -299,4 +299,14 @@
     <string name="network_remote_path">远程路径</string>
     <string name="network_root">根目录</string>
     <string name="network_storage">存储</string>
+
+    <string name="audio_now_playing">正在播放</string>
+    <string name="audio_unknown_artist">未知艺术家</string>
+    <string name="audio_playlist">播放列表</string>
+    <string name="audio_play">播放</string>
+    <string name="audio_pause">暂停</string>
+    <string name="audio_previous">上一首</string>
+    <string name="audio_next">下一首</string>
+    <string name="audio_close">关闭播放器</string>
+    <string name="audio_no_track">未选择音频</string>
 </resources>

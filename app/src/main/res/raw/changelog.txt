@@ -1,3 +1,12 @@
+v1.3.0
+- Added an in-app audio player with album art, title/artist/album, playlist, seeking, previous/next and a mini player.
+- Tapping an audio file on local storage, root paths, SMB or SFTP opens the built-in player. Remote audio is buffered to the local cache before playback.
+- Playback continues while browsing; close it from the mini player.
+
+v1.2.1
+- Renamed the app to File Browser and removed all CX branding.
+- New package name: com.example.filebrowser. Settings from older package versions are not migrated automatically.
+
 v1.2.0
 - Added root access: enable it in Settings, grant superuser permission, then browse restricted paths such as /data and /system.
 - Root operations: create, rename, delete and copy between root and normal storage; root files are copied to cache for preview.
