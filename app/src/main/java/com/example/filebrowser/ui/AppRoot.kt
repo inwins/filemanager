@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -103,7 +104,11 @@ fun AppRoot(state: AppState) {
             Column {
             val showMini = state.audioPlayer.current != null && current !is Screen.AudioPlayer
             if (showMini) {
-                MiniAudioBar(state) { state.navigate(Screen.AudioPlayer) }
+                MiniAudioBar(
+                    state = state,
+                    applyNavigationInset = !showBottomBar,
+                    onOpen = { state.navigate(Screen.AudioPlayer) },
+                )
             }
             if (showBottomBar) {
                 val selected = when (current) {
@@ -178,9 +183,16 @@ fun AppRoot(state: AppState) {
 }
 
 @Composable
-private fun MiniAudioBar(state: AppState, onOpen: () -> Unit) {
+private fun MiniAudioBar(
+    state: AppState,
+    applyNavigationInset: Boolean,
+    onOpen: () -> Unit,
+) {
     val player = state.audioPlayer
-    Surface(tonalElevation = 4.dp) {
+    Surface(
+        tonalElevation = 4.dp,
+        modifier = if (applyNavigationInset) Modifier.navigationBarsPadding() else Modifier,
+    ) {
         Row(
             Modifier
                 .fillMaxWidth()

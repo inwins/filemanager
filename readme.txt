@@ -5,7 +5,7 @@
 路径：仓库根目录
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
-当前版本：1.3.0（versionCode 5）
+当前版本：1.3.1（versionCode 6）
 
 界面与交互参考主流文件管理器，使用原创代码实现。依赖统一走
 阿里云 Maven 镜像；如需拉取 GitHub 参考项目，建议使用 gitclone、ghproxy

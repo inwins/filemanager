@@ -1,3 +1,7 @@
+v1.3.1
+- Fixed the mini player bar overlapping the system navigation buttons after leaving the audio player.
+- The audio player and mini player now respect the bottom system inset.
+
 v1.3.0
 - Added an in-app audio player with album art, title/artist/album, playlist, seeking, previous/next and a mini player.
 - Tapping an audio file on local storage, root paths, SMB or SFTP opens the built-in player. Remote audio is buffered to the local cache before playback.
