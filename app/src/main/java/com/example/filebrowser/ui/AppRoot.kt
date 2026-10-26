@@ -178,6 +178,8 @@ fun AppRoot(state: AppState) {
                 is Screen.AudioPlayer -> AudioPlayerScreen(state)
                 is Screen.ArchivePreview -> ArchivePreviewScreen(state, current.path)
                 is Screen.Cleaner -> CleanerScreen(state, current.path)
+                is Screen.Trash -> TrashScreen(state)
+                is Screen.VideoPlayer -> VideoPlayerScreen(state, current.path)
             }
         }
     }

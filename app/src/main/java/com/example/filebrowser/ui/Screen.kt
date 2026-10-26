@@ -20,4 +20,6 @@ sealed class Screen {
     data object AudioPlayer : Screen()
     data class ArchivePreview(val path: String) : Screen()
     data class Cleaner(val path: String) : Screen()
+    data object Trash : Screen()
+    data class VideoPlayer(val path: String) : Screen()
 }

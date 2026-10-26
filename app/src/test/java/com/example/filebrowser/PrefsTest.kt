@@ -8,6 +8,7 @@ import com.example.filebrowser.data.Prefs
 import com.example.filebrowser.data.ReaderSettings
 import com.example.filebrowser.data.ReaderTheme
 import com.example.filebrowser.data.TextBookmark
+import com.example.filebrowser.data.TrashEntry
 import com.example.filebrowser.data.RecentEntry
 import com.example.filebrowser.data.SortField
 import com.example.filebrowser.data.SortOrder
@@ -93,6 +94,17 @@ class PrefsTest {
 
         p.saveReaderBookmarks(path, emptyList())
         assertEquals(emptyList<TextBookmark>(), p.loadReaderBookmarks(path))
+    }
+
+    @Test
+    fun trashRoundTrip() {
+        val p = prefs()
+        val entries = listOf(
+            TrashEntry("a", "a.txt", "/sdcard/a.txt", "/data/trash/a/a.txt", 1000L, 12L, false),
+            TrashEntry("b", "folder", "/sdcard/folder", "/data/trash/b/folder", 2000L, 0L, true),
+        )
+        p.saveTrash(entries)
+        assertEquals(entries, p.loadTrash())
     }
 
     @Test

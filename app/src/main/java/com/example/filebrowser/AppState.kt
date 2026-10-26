@@ -31,6 +31,8 @@ import com.example.filebrowser.data.RemoteFileSystems
 import com.example.filebrowser.data.RemoteProfile
 import com.example.filebrowser.data.RemoteTransfer
 import com.example.filebrowser.data.RootShell
+import com.example.filebrowser.data.TrashEntry
+import com.example.filebrowser.data.TrashStore
 import com.example.filebrowser.data.SortField
 import com.example.filebrowser.data.SortOrder
 import com.example.filebrowser.data.ViewMode
@@ -53,6 +55,7 @@ class AppState(context: Context) {
     val appContext: Context = context.applicationContext
     val repository = FileRepository(appContext)
     val prefs = Prefs(appContext)
+    private val trashStore = TrashStore(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     var settings by mutableStateOf(prefs.loadSettings())
@@ -90,6 +93,8 @@ class AppState(context: Context) {
     var remoteProfiles by mutableStateOf(prefs.loadRemoteProfiles())
         private set
     var markers by mutableStateOf(prefs.loadMarkers())
+        private set
+    var trashEntries by mutableStateOf(prefs.loadTrash().filter { File(it.trashedPath).exists() })
         private set
 
     var requestPermissionAction: (() -> Unit)? = null
@@ -385,6 +390,10 @@ class AppState(context: Context) {
             playAudio(actual, actualSiblings)
             return
         }
+        if (actual.isVideo && actual.path.isNotBlank()) {
+            navigate(Screen.VideoPlayer(actual.path))
+            return
+        }
         if (actual.isArchive && actual.path.isNotBlank()) {
             navigate(Screen.ArchivePreview(actual.path))
             return
@@ -609,17 +618,84 @@ class AppState(context: Context) {
         }
     }
 
-    fun delete(items: List<FileItem>) {
+    fun delete(items: List<FileItem>, useTrash: Boolean = true) {
         if (items.isEmpty()) return
         runOperation(R.string.delete_progress) { update, shouldContinue ->
             var success = 0
+            var trashed = 0
             for (item in items) {
                 if (!shouldContinue()) break
                 update(item.name)
+                val file = item.path.takeIf { it.isNotBlank() }?.let { File(it) }
+                val canTrash = useTrash && settings.useTrash &&
+                    file != null &&
+                    file.exists() &&
+                    !needsRoot(item.path)
+                if (canTrash && file != null) {
+                    val target = trashStore.trash(file)
+                    if (target != null) {
+                        val entry = TrashEntry(
+                            id = target.parentFile?.name ?: target.name,
+                            name = item.name,
+                            originalPath = file.absolutePath,
+                            trashedPath = target.absolutePath,
+                            deletedAt = System.currentTimeMillis(),
+                            size = if (item.isDirectory) 0L else item.size,
+                            isDirectory = item.isDirectory,
+                        )
+                        trashEntries = listOf(entry) + trashEntries
+                        prefs.saveTrash(trashEntries)
+                        success++
+                        trashed++
+                        continue
+                    }
+                }
                 val ok = if (needsRoot(item.path)) RootShell.delete(item.path) else repository.deleteItem(item)
                 if (ok) success++
             }
-            if (success == 0) null else appContext.getString(R.string.deleted, success)
+            if (success == 0) null
+            else appContext.getString(
+                if (trashed > 0) R.string.trashed else R.string.deleted,
+                success,
+            )
+        }
+    }
+
+    fun restoreTrash(entry: TrashEntry) {
+        runOperation(R.string.processing) { _, _ ->
+            val target = trashStore.restore(entry)
+            if (target == null) {
+                null
+            } else {
+                trashEntries = trashEntries.filterNot { it.id == entry.id }
+                prefs.saveTrash(trashEntries)
+                repository.scan(listOf(target))
+                refreshTick++
+                appContext.getString(R.string.trash_restored, target.name)
+            }
+        }
+    }
+
+    fun deleteTrash(entry: TrashEntry) {
+        runOperation(R.string.delete_progress) { _, _ ->
+            if (trashStore.delete(entry)) {
+                trashEntries = trashEntries.filterNot { it.id == entry.id }
+                prefs.saveTrash(trashEntries)
+                appContext.getString(R.string.deleted, 1)
+            } else {
+                null
+            }
+        }
+    }
+
+    fun emptyTrash() {
+        val entries = trashEntries
+        if (entries.isEmpty()) return
+        runOperation(R.string.delete_progress) { _, _ ->
+            val count = trashStore.empty(entries)
+            trashEntries = emptyList()
+            prefs.saveTrash(emptyList())
+            appContext.getString(R.string.deleted, count)
         }
     }
 

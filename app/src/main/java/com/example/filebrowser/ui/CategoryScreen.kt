@@ -361,6 +361,7 @@ fun CategoryScreen(state: AppState, kind: CategoryKind) {
     if (showDelete) {
         DeleteConfirmDialog(
             count = selectedItems.size,
+            useTrash = state.settings.useTrash,
             onDismiss = { showDelete = false },
             onConfirm = {
                 state.delete(selectedItems)

@@ -470,6 +470,7 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
     if (showDelete) {
         DeleteConfirmDialog(
             count = selectedItems.size,
+            useTrash = state.settings.useTrash,
             onDismiss = { showDelete = false },
             onConfirm = {
                 state.delete(selectedItems)

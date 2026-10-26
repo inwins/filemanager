@@ -809,19 +809,29 @@ fun NameDialog(
 }
 
 @Composable
-fun DeleteConfirmDialog(count: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+fun DeleteConfirmDialog(
+    count: Int,
+    useTrash: Boolean = false,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.delete_confirm_title)) },
         text = {
             Column {
-                Text(stringResource(R.string.delete_confirm_message, count))
-                Spacer(Modifier.height(8.dp))
                 Text(
-                    stringResource(R.string.delete_permanent_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    if (useTrash) stringResource(R.string.delete_trash_message, count)
+                    else stringResource(R.string.delete_confirm_message, count)
                 )
+                if (!useTrash) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.delete_permanent_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         },
         confirmButton = {

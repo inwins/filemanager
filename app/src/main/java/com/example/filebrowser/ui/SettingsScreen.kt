@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Visibility
@@ -118,6 +119,14 @@ fun SettingsScreen(state: AppState) {
                     onCheckedChange = { state.updateSettings(settings.copy(showHidden = it)) },
                 )
             }
+            item {
+                SettingsSwitch(
+                    icon = Icons.Filled.DeleteSweep,
+                    title = stringResource(R.string.use_trash),
+                    checked = settings.useTrash,
+                    onCheckedChange = { state.updateSettings(settings.copy(useTrash = it)) },
+                )
+            }
 
             item { SettingsSection(stringResource(R.string.storage)) }
             item {
@@ -145,6 +154,14 @@ fun SettingsScreen(state: AppState) {
                     subtitle = if (state.permissionGranted) stringResource(R.string.granted)
                     else stringResource(R.string.not_granted),
                     onClick = { state.requestPermission() },
+                )
+            }
+            item {
+                SettingsItem(
+                    icon = Icons.Filled.DeleteSweep,
+                    title = stringResource(R.string.trash),
+                    subtitle = stringResource(R.string.items_count, state.trashEntries.size),
+                    onClick = { state.navigate(Screen.Trash) },
                 )
             }
             item {

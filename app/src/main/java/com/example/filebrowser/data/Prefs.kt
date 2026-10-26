@@ -15,6 +15,7 @@ class Prefs(context: Context) {
             showHidden = sp.getBoolean(KEY_HIDDEN, false),
             sortField = enumValue(sp.getString(KEY_SORT_FIELD, null), SortField.NAME),
             sortOrder = enumValue(sp.getString(KEY_SORT_ORDER, null), SortOrder.ASC),
+            useTrash = sp.getBoolean(KEY_USE_TRASH, true),
         )
     }
 
@@ -26,6 +27,7 @@ class Prefs(context: Context) {
             .putBoolean(KEY_HIDDEN, settings.showHidden)
             .putString(KEY_SORT_FIELD, settings.sortField.name)
             .putString(KEY_SORT_ORDER, settings.sortOrder.name)
+            .putBoolean(KEY_USE_TRASH, settings.useTrash)
             .apply()
     }
 
@@ -86,6 +88,48 @@ class Prefs(context: Context) {
         sp.edit().putString(KEY_RECENTS, array.toString()).apply()
     }
 
+
+    fun loadTrash(): List<TrashEntry> {
+        val raw = sp.getString(KEY_TRASH, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val id = obj.optString("id")
+                    if (id.isBlank()) continue
+                    add(
+                        TrashEntry(
+                            id = id,
+                            name = obj.optString("name"),
+                            originalPath = obj.optString("originalPath"),
+                            trashedPath = obj.optString("trashedPath"),
+                            deletedAt = obj.optLong("deletedAt", 0L),
+                            size = obj.optLong("size", 0L),
+                            isDirectory = obj.optBoolean("isDirectory", false),
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveTrash(entries: List<TrashEntry>) {
+        val array = JSONArray()
+        entries.forEach {
+            array.put(
+                JSONObject()
+                    .put("id", it.id)
+                    .put("name", it.name)
+                    .put("originalPath", it.originalPath)
+                    .put("trashedPath", it.trashedPath)
+                    .put("deletedAt", it.deletedAt)
+                    .put("size", it.size)
+                    .put("isDirectory", it.isDirectory)
+            )
+        }
+        sp.edit().putString(KEY_TRASH, array.toString()).apply()
+    }
 
     fun loadReaderSettings(): ReaderSettings {
         return ReaderSettings(
@@ -306,6 +350,8 @@ class Prefs(context: Context) {
         private const val KEY_ROOT_ACCESS = "root_access"
         private const val KEY_REMOTE_PROFILES = "remote_profiles"
         private const val KEY_MARKERS = "file_markers"
+        private const val KEY_USE_TRASH = "use_trash"
+        private const val KEY_TRASH = "trash_entries"
         private const val MAX_RECENTS = 30
     }
 }

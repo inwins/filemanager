@@ -221,7 +221,7 @@ fun CleanerScreen(state: AppState, root: String) {
             confirmButton = {
                 TextButton(onClick = {
                     confirmDeleteDuplicates = false
-                    state.delete(deleteFiles.map { it.fileItem() })
+                    state.delete(deleteFiles.map { it.fileItem() }, useTrash = false)
                 }) {
                     Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
                 }
@@ -241,7 +241,7 @@ fun CleanerScreen(state: AppState, root: String) {
             text = { Text(item.file.absolutePath) },
             confirmButton = {
                 TextButton(onClick = {
-                    state.delete(listOf(item.file.fileItem()))
+                    state.delete(listOf(item.file.fileItem()), useTrash = false)
                     deleteLarge = null
                 }) {
                     Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)

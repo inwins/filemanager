@@ -383,4 +383,17 @@
     <string name="zip_password_optional">密码（可选）</string>
     <string name="zip_split_size">分卷大小（MB，0 表示不分卷）</string>
     <string name="zip_split_hint">设置密码将使用 AES 加密；设置分卷大小可创建多卷 ZIP。</string>
+
+    <string name="trash">回收站</string>
+    <string name="trash_empty">回收站为空</string>
+    <string name="trash_restore">恢复</string>
+    <string name="trash_delete_forever">永久删除</string>
+    <string name="trash_empty_bin">清空回收站</string>
+    <string name="trash_empty_confirm">确定永久删除回收站中的所有项目吗？</string>
+    <string name="trash_restored">已恢复到 %1$s</string>
+    <string name="trashed">已将 %d 项移入回收站</string>
+    <string name="use_trash">删除时移入回收站</string>
+    <string name="trash_original">原位置：%1$s</string>
+
+    <string name="delete_trash_message">将 %d 项移入回收站？</string>
 </resources>

@@ -1,3 +1,8 @@
+v1.7.0
+- Added a recycle bin: deleted local files are moved there by default and can be restored or permanently deleted.
+- Added a recycle bin setting and an empty-bin action.
+- Added a built-in video player for local videos and cached remote videos.
+
 v1.6.1
 - Added remote image and video thumbnails via the local streaming endpoint.
 - Tags and favorites now also work for remote SMB/SFTP paths.

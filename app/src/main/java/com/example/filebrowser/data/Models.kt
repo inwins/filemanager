@@ -87,6 +87,7 @@ data class AppSettings(
     val showHidden: Boolean = false,
     val sortField: SortField = SortField.NAME,
     val sortOrder: SortOrder = SortOrder.ASC,
+    val useTrash: Boolean = true,
 ) {
     val sortSpec: SortSpec get() = SortSpec(sortField, sortOrder)
 }
@@ -102,6 +103,16 @@ data class FileMarker(
     val isEmpty: Boolean
         get() = color == MarkerColor.NONE && label.isBlank() && !favorite && !pinned
 }
+
+data class TrashEntry(
+    val id: String,
+    val name: String,
+    val originalPath: String,
+    val trashedPath: String,
+    val deletedAt: Long,
+    val size: Long,
+    val isDirectory: Boolean,
+)
 
 data class AppItem(
     val label: String,

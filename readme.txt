@@ -5,7 +5,7 @@
 路径：仓库根目录
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
-当前版本：1.6.1（versionCode 11）
+当前版本：1.7.0（versionCode 12）
 
 界面与交互参考主流文件管理器，使用原创代码实现。依赖统一走
 阿里云 Maven 镜像；如需拉取 GitHub 参考项目，建议使用 gitclone、ghproxy
@@ -45,6 +45,8 @@ compileSdk 34 / minSdk 26 / targetSdk 34
    - 标签、收藏、置顶和颜色标记；收藏/置顶显示在首页。
    - 本地与远程图片/视频缩略图（远程通过本机流媒体接口加载，不额外下载整个目录）。
    - 远程路径也支持标签/收藏（按服务器+路径保存）。
+   - 回收站：删除默认移入回收站，可恢复或永久删除/清空。
+   - 内置视频播放器：本地及缓存后的远程视频可直接播放。
    - 文本内置编辑器：UTF-8 / GBK 读取、保存、未保存提醒。
    - 打开方式、分享、APK 安装（FileProvider）。
    - Root 访问：浏览 /data 等受限路径，支持 Root 文件操作与本地互传。
@@ -156,7 +158,8 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 - Root ls 输出解析、隐藏文件过滤。
 - LRC 歌词解析、时间轴定位。
 - HTTP Range 请求解析、文件哈希、ZIP 创建/加密/解压。
-- 共 46 项测试。
+- 回收站元数据读写。
+- 共 47 项测试。
 
 报告：app/build/reports/tests/testDebugUnitTest/index.html
 
@@ -288,6 +291,8 @@ app/src/main/java/com/example/filebrowser/
     NetworkScreen.kt 网络存储列表、配置与远程浏览
     ArchivePreviewScreen.kt 压缩包预览与解压
     CleanerScreen.kt 存储清理
+    TrashScreen.kt  回收站
+    VideoPlayerScreen.kt 内置视频播放器
     HashDialog.kt    MD5/SHA-1/SHA-256 计算
     Components.kt    文件行 / 网格、图标、对话框、底部弹层
     theme/Theme.kt   Material 3 主题
