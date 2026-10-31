@@ -44,6 +44,10 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.Info
@@ -51,6 +55,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
@@ -88,6 +93,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.filebrowser.AppState
@@ -119,9 +125,14 @@ private data class RemoteTask(
     val done: Long,
     val detail: String,
     val cancellable: Boolean,
+    val speedBytesPerSecond: Long = 0L,
+    val etaSeconds: Long = -1L,
 ) {
     val fraction: Float?
         get() = if (total > 0) (done.toDouble() / total).toFloat().coerceIn(0f, 1f) else null
+
+    val percent: Int
+        get() = ((fraction ?: 0f) * 100).toInt()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -310,7 +321,13 @@ private fun RemoteProfileDialog(
     var hostKeyFingerprint by remember(initial) { mutableStateOf(initial?.hostKeyFingerprint.orEmpty()) }
     var guest by remember(initial) { mutableStateOf(initial?.guest == true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showPassword by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<String?>(null) }
+    var testOk by remember { mutableStateOf(false) }
+
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val hostRequired = stringResource(R.string.network_host_required)
     val invalidPort = stringResource(R.string.network_invalid_port)
     val shareRequired = stringResource(R.string.network_share_required)
@@ -341,20 +358,96 @@ private fun RemoteProfileDialog(
         }
     }
 
+    fun buildProfile(): RemoteProfile? {
+        val parsedPort = port.toIntOrNull()
+        error = when {
+            host.isBlank() -> hostRequired
+            parsedPort == null || parsedPort !in 1..65535 -> invalidPort
+            protocol == RemoteProtocol.SMB && share.isBlank() -> shareRequired
+            protocol == RemoteProtocol.SFTP &&
+                authMethod == RemoteAuthMethod.KEY && privateKeyPath.isBlank() -> keyRequired
+            else -> null
+        }
+        if (error != null || parsedPort == null) return null
+        return RemoteProfile(
+            id = initial?.id ?: UUID.randomUUID().toString(),
+            name = name.ifBlank { host },
+            protocol = protocol,
+            host = host.trim(),
+            port = parsedPort,
+            username = username.trim(),
+            password = password,
+            domain = domain.trim(),
+            share = share.trim(),
+            rootPath = rootPath.trim().ifBlank { "/" },
+            authMethod = authMethod,
+            privateKeyPath = privateKeyPath,
+            keyPassphrase = keyPassphrase,
+            hostKeyFingerprint = hostKeyFingerprint.trim(),
+            guest = protocol == RemoteProtocol.SMB && guest,
+        )
+    }
+
+    fun testConnection() {
+        val candidate = buildProfile() ?: return
+        testing = true
+        testResult = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    RemoteFileSystems.open(candidate).use { system ->
+                        system.list(candidate.rootPath.ifBlank { "/" })
+                    }
+                }
+            }
+            testing = false
+            result.onSuccess {
+                testOk = true
+                testResult = context.getString(R.string.network_connection_ok)
+            }.onFailure {
+                testOk = false
+                testResult = it.message ?: context.getString(R.string.network_connection_failed)
+            }
+        }
+    }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier
-                .verticalScroll(rememberScrollState())
+                .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 24.dp),
         ) {
-            Text(
-                stringResource(if (initial == null) R.string.network_add else R.string.network_edit),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (protocol == RemoteProtocol.SMB) Icons.Filled.FolderShared else Icons.Filled.Dns,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        stringResource(if (initial == null) R.string.network_add else R.string.network_edit),
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        if (protocol == RemoteProtocol.SMB) "SMB / SMB2 / SMB3" else "SFTP / SSH",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RemoteProtocol.entries.forEach { value ->
                     FilterChip(
@@ -365,148 +458,213 @@ private fun RemoteProfileDialog(
                                     port = if (value == RemoteProtocol.SMB) "445" else "22"
                                 }
                                 protocol = value
+                                error = null
+                                testResult = null
                             }
                         },
                         label = { Text(value.name) },
+                        leadingIcon = {
+                            Icon(
+                                if (value == RemoteProtocol.SMB) Icons.Filled.FolderShared else Icons.Filled.Dns,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
                     )
                 }
             }
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.network_name)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = host,
-                onValueChange = { host = it },
-                label = { Text(stringResource(R.string.network_host)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = port,
-                onValueChange = { port = it.filter(Char::isDigit) },
-                label = { Text(stringResource(R.string.network_port)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (protocol == RemoteProtocol.SMB) {
-                OutlinedTextField(
-                    value = share,
-                    onValueChange = { share = it },
-                    label = { Text(stringResource(R.string.network_share)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = domain,
-                    onValueChange = { domain = it },
-                    label = { Text(stringResource(R.string.network_domain)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (protocol == RemoteProtocol.SFTP) {
-                Text(
-                    stringResource(R.string.network_auth),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+
+            Column(
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                SectionLabel(stringResource(R.string.network_server_section))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RemoteAuthMethod.entries.forEach { method ->
-                        FilterChip(
-                            selected = authMethod == method,
-                            onClick = { authMethod = method },
-                            label = {
-                                Text(
-                                    when (method) {
-                                        RemoteAuthMethod.PASSWORD -> stringResource(R.string.network_password)
-                                        RemoteAuthMethod.KEY -> stringResource(R.string.network_key)
-                                    }
-                                )
-                            },
-                        )
-                    }
-                }
-            }
-            if (protocol == RemoteProtocol.SMB) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(R.string.network_guest),
+                    OutlinedTextField(
+                        value = host,
+                        onValueChange = { host = it; testResult = null },
+                        label = { Text(stringResource(R.string.network_host)) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null) },
                         modifier = Modifier.weight(1f),
                     )
-                    Switch(checked = guest, onCheckedChange = { guest = it })
+                    OutlinedTextField(
+                        value = port,
+                        onValueChange = { port = it.filter(Char::isDigit) },
+                        label = { Text(stringResource(R.string.network_port)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.width(108.dp),
+                    )
                 }
-            }
-            if (!(protocol == RemoteProtocol.SMB && guest)) {
                 OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text(stringResource(R.string.network_username)) },
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.network_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (protocol == RemoteProtocol.SFTP && authMethod == RemoteAuthMethod.KEY) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            if (privateKeyPath.isBlank()) stringResource(R.string.network_no_key)
-                            else File(privateKeyPath).name,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        TextButton(onClick = { keyLauncher.launch(arrayOf("*/*")) }) {
-                            Text(stringResource(R.string.network_select_key))
+                if (protocol == RemoteProtocol.SMB) {
+                    OutlinedTextField(
+                        value = share,
+                        onValueChange = { share = it; testResult = null },
+                        label = { Text(stringResource(R.string.network_share)) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Folder, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                SectionLabel(stringResource(R.string.network_login_section))
+                if (protocol == RemoteProtocol.SFTP) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RemoteAuthMethod.entries.forEach { method ->
+                            FilterChip(
+                                selected = authMethod == method,
+                                onClick = {
+                                    authMethod = method
+                                    testResult = null
+                                },
+                                label = {
+                                    Text(
+                                        when (method) {
+                                            RemoteAuthMethod.PASSWORD -> stringResource(R.string.network_password)
+                                            RemoteAuthMethod.KEY -> stringResource(R.string.network_key)
+                                        }
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        if (method == RemoteAuthMethod.KEY) Icons.Filled.Key else Icons.Filled.Person,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                },
+                            )
                         }
                     }
+                }
+                if (protocol == RemoteProtocol.SMB) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.network_guest))
+                            Text(
+                                stringResource(R.string.network_guest_hint),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = guest, onCheckedChange = { guest = it; testResult = null })
+                    }
+                }
+                if (!(protocol == RemoteProtocol.SMB && guest)) {
                     OutlinedTextField(
-                        value = keyPassphrase,
-                        onValueChange = { keyPassphrase = it },
-                        label = { Text(stringResource(R.string.network_key_passphrase)) },
-                        visualTransformation = PasswordVisualTransformation(),
+                        value = username,
+                        onValueChange = { username = it; testResult = null },
+                        label = { Text(stringResource(R.string.network_username)) },
                         singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                } else {
+                    if (protocol == RemoteProtocol.SFTP && authMethod == RemoteAuthMethod.KEY) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Filled.Key,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                if (privateKeyPath.isBlank()) stringResource(R.string.network_no_key)
+                                else File(privateKeyPath).name,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            TextButton(onClick = { keyLauncher.launch(arrayOf("*/*")) }) {
+                                Text(stringResource(R.string.network_select_key))
+                            }
+                        }
+                        OutlinedTextField(
+                            value = keyPassphrase,
+                            onValueChange = { keyPassphrase = it; testResult = null },
+                            label = { Text(stringResource(R.string.network_key_passphrase)) },
+                            visualTransformation = if (showPassword) VisualTransformation.None
+                            else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showPassword = !showPassword }) {
+                                    Icon(
+                                        if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = null,
+                                    )
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it; testResult = null },
+                            label = { Text(stringResource(R.string.network_password)) },
+                            visualTransformation = if (showPassword) VisualTransformation.None
+                            else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showPassword = !showPassword }) {
+                                    Icon(
+                                        if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = null,
+                                    )
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                if (protocol == RemoteProtocol.SMB) {
                     OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text(stringResource(R.string.network_password)) },
-                        visualTransformation = PasswordVisualTransformation(),
+                        value = domain,
+                        onValueChange = { domain = it; testResult = null },
+                        label = { Text(stringResource(R.string.network_domain)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-            }
-            if (protocol == RemoteProtocol.SFTP) {
+
+                SectionLabel(stringResource(R.string.network_path_section))
                 OutlinedTextField(
-                    value = hostKeyFingerprint,
-                    onValueChange = { hostKeyFingerprint = it },
-                    label = { Text(stringResource(R.string.network_host_fingerprint)) },
-                    placeholder = { Text("SHA256:...") },
+                    value = rootPath,
+                    onValueChange = { rootPath = it; testResult = null },
+                    label = { Text(stringResource(R.string.network_root_path)) },
                     singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Folder, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (protocol == RemoteProtocol.SFTP) {
+                    OutlinedTextField(
+                        value = hostKeyFingerprint,
+                        onValueChange = { hostKeyFingerprint = it; testResult = null },
+                        label = { Text(stringResource(R.string.network_host_fingerprint)) },
+                        placeholder = { Text("SHA256:...") },
+                        supportingText = { Text(stringResource(R.string.network_fingerprint_hint)) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Fingerprint, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
-            OutlinedTextField(
-                value = rootPath,
-                onValueChange = { rootPath = it },
-                label = { Text(stringResource(R.string.network_root_path)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+
             if (error != null) {
                 Text(
                     error ?: "",
@@ -515,48 +673,59 @@ private fun RemoteProfileDialog(
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
-            Button(
-                onClick = {
-                    val parsedPort = port.toIntOrNull()
-                    error = when {
-                        host.isBlank() -> hostRequired
-                        parsedPort == null || parsedPort !in 1..65535 -> invalidPort
-                        protocol == RemoteProtocol.SMB && share.isBlank() -> shareRequired
-                        protocol == RemoteProtocol.SFTP &&
-                            authMethod == RemoteAuthMethod.KEY && privateKeyPath.isBlank() -> keyRequired
-                        else -> null
-                    }
-                    if (error == null && parsedPort != null) {
-                        onSave(
-                            RemoteProfile(
-                                id = initial?.id ?: UUID.randomUUID().toString(),
-                                name = name.ifBlank { host },
-                                protocol = protocol,
-                                host = host.trim(),
-                                port = parsedPort,
-                                username = username.trim(),
-                                password = password,
-                                domain = domain.trim(),
-                                share = share.trim(),
-                                rootPath = rootPath.trim().ifBlank { "/" },
-                                authMethod = authMethod,
-                                privateKeyPath = privateKeyPath,
-                                keyPassphrase = keyPassphrase,
-                                hostKeyFingerprint = hostKeyFingerprint.trim(),
-                                guest = protocol == RemoteProtocol.SMB && guest,
-                            )
+            if (testing || testResult != null) {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (testing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.network_testing), style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Text(
+                            testResult ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (testOk) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error,
                         )
-                        onDismiss()
                     }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(stringResource(R.string.save))
+                TextButton(
+                    onClick = { testConnection() },
+                    enabled = !testing,
+                ) {
+                    Text(stringResource(R.string.network_test_connection))
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.cancel))
+                }
+                Button(onClick = {
+                    val profile = buildProfile() ?: return@Button
+                    onSave(profile)
+                    onDismiss()
+                }) {
+                    Text(stringResource(R.string.save))
+                }
             }
         }
     }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 14.dp, bottom = 6.dp),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -654,12 +823,25 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                         task = task?.copy(detail = original)
                         val base = uploaded
                         val destName = uniqueRemoteName(system, currentPath, original)
+                        var lastTime = System.currentTimeMillis()
+                        var lastDone = 0L
                         val ok = try {
                             system.upload(
                                 temp,
                                 RemoteFileSystems.join(currentPath, destName),
                                 onBytes = { done ->
-                                    task = task?.copy(done = (base + done).coerceAtMost(total))
+                                    val now = System.currentTimeMillis()
+                                    val elapsed = (now - lastTime).coerceAtLeast(1)
+                                    val speed = ((done - lastDone).coerceAtLeast(0) * 1000L) / elapsed
+                                    val currentDone = (base + done).coerceAtMost(total)
+                                    val eta = if (speed > 0 && total > currentDone) (total - currentDone) / speed else -1L
+                                    lastTime = now
+                                    lastDone = done
+                                    task = task?.copy(
+                                        done = currentDone,
+                                        speedBytesPerSecond = speed,
+                                        etaSeconds = eta,
+                                    )
                                 },
                                 shouldContinue = { !cancelRequested },
                             )
@@ -704,6 +886,8 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
             ).apply { mkdirs() }
             val dest = File(cacheDir, entry.name)
             var lastReported = -1L
+            var lastTime = System.currentTimeMillis()
+            var lastDone = 0L
             val step = if (entry.size > 0) (entry.size / 100).coerceAtLeast(32 * 1024) else 64 * 1024
             val ok = withContext(Dispatchers.IO) {
                 try {
@@ -714,7 +898,17 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                         onBytes = { done ->
                             if (done - lastReported >= step || done >= entry.size) {
                                 lastReported = done
-                                task = task?.copy(done = done)
+                                val now = System.currentTimeMillis()
+                                val elapsed = (now - lastTime).coerceAtLeast(1)
+                                val speed = ((done - lastDone).coerceAtLeast(0) * 1000L) / elapsed
+                                val eta = if (speed > 0 && entry.size > done) (entry.size - done) / speed else -1L
+                                lastTime = now
+                                lastDone = done
+                                task = task?.copy(
+                                    done = done,
+                                    speedBytesPerSecond = speed,
+                                    etaSeconds = eta,
+                                )
                             }
                         },
                         shouldContinue = { !cancelRequested },
@@ -772,6 +966,8 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
             val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val dest = com.example.filebrowser.data.FileOps.uniqueFile(File(dir, entry.name))
             var lastReported = -1L
+            var lastTime = System.currentTimeMillis()
+            var lastDone = 0L
             val step = if (entry.size > 0) (entry.size / 100).coerceAtLeast(32 * 1024) else 64 * 1024
             val ok = withContext(Dispatchers.IO) {
                 try {
@@ -782,7 +978,17 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                         onBytes = { done ->
                             if (done - lastReported >= step || done >= entry.size) {
                                 lastReported = done
-                                task = task?.copy(done = done)
+                                val now = System.currentTimeMillis()
+                                val elapsed = (now - lastTime).coerceAtLeast(1)
+                                val speed = ((done - lastDone).coerceAtLeast(0) * 1000L) / elapsed
+                                val eta = if (speed > 0 && entry.size > done) (entry.size - done) / speed else -1L
+                                lastTime = now
+                                lastDone = done
+                                task = task?.copy(
+                                    done = done,
+                                    speedBytesPerSecond = speed,
+                                    etaSeconds = eta,
+                                )
                             }
                         },
                         shouldContinue = { !cancelRequested },
@@ -1178,6 +1384,9 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                 }
             },
             actions = {
+                IconButton(onClick = { state.navigate(Screen.Browser(state.lastBrowserPath)) }) {
+                    Icon(Icons.Filled.Smartphone, contentDescription = stringResource(R.string.switch_to_local))
+                }
                 IconButton(onClick = { uploadLauncher.launch(arrayOf("*/*")) }) {
                     Icon(Icons.Filled.UploadFile, contentDescription = stringResource(R.string.network_upload))
                 }
@@ -1269,6 +1478,13 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                 count = clipCount,
                 onPaste = { pasteHere() },
                 onClear = { state.clearClipboard() },
+                sourceLabel = if (state.remoteClipboard != null) {
+                    stringResource(R.string.clipboard_from_network)
+                } else {
+                    stringResource(R.string.clipboard_from_local)
+                },
+                switchLabel = stringResource(R.string.switch_to_local),
+                onSwitch = { state.navigate(Screen.Browser(state.lastBrowserPath)) },
             )
         }
     }
@@ -1412,31 +1628,67 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
             title = { Text(current.title) },
             text = {
                 Column {
-                    if (current.detail.isNotBlank()) {
-                        Text(
-                            current.detail,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
                     val fraction = current.fraction
+                    if (current.cancellable && current.total > 0) {
+                        Text(
+                            "${current.percent}%",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
                     if (fraction != null) {
                         LinearProgressIndicator(
                             progress = { fraction },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(10.dp)
+                                .clip(RoundedCornerShape(5.dp)),
                         )
                     } else {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
                     if (current.total > 0) {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                "${Format.size(current.done)} / ${Format.size(current.total)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "${current.percent}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (current.speedBytesPerSecond > 0) {
+                            Spacer(Modifier.height(4.dp))
+                            val speed = Format.size(current.speedBytesPerSecond) + "/s"
+                            val eta = if (current.etaSeconds > 0) {
+                                " · " + stringResource(R.string.download_eta, current.etaSeconds)
+                            } else ""
+                            Text(
+                                speed + eta,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (current.detail.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
                         Text(
-                            "${Format.size(current.done)} / ${Format.size(current.total)} · " +
-                                "${(fraction ?: 0f).times(100).toInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            current.detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }

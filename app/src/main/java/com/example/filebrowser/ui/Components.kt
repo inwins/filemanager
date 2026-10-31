@@ -745,21 +745,39 @@ fun SelectionActionBar(
 }
 
 @Composable
-fun ClipboardBar(count: Int, onPaste: () -> Unit, onClear: () -> Unit) {
+fun ClipboardBar(
+    count: Int,
+    onPaste: () -> Unit,
+    onClear: () -> Unit,
+    sourceLabel: String? = null,
+    switchLabel: String? = null,
+    onSwitch: (() -> Unit)? = null,
+) {
     Surface(tonalElevation = 3.dp) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(10.dp))
-            Text(
-                stringResource(R.string.clipboard_count, count),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.clipboard_count, count),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (sourceLabel != null) {
+                    Text(
+                        sourceLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (switchLabel != null && onSwitch != null) {
+                TextButton(onClick = onSwitch) { Text(switchLabel) }
+            }
             TextButton(onClick = onClear) { Text(stringResource(R.string.cancel)) }
             TextButton(onClick = onPaste) { Text(stringResource(R.string.paste)) }
         }

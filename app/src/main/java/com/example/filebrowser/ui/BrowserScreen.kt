@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
@@ -158,6 +159,9 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
                     Text(folderName, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 actions = {
+                    IconButton(onClick = { state.goTab(3) }) {
+                        Icon(Icons.Filled.Cloud, contentDescription = stringResource(R.string.switch_to_network))
+                    }
                     IconButton(onClick = { state.navigate(Screen.Search(screen.path)) }) {
                         Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.search))
                     }
@@ -271,6 +275,13 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
                 count = clipCount,
                 onPaste = { state.paste(screen.path) },
                 onClear = { state.clearClipboard() },
+                sourceLabel = if (state.remoteClipboard != null) {
+                    stringResource(R.string.clipboard_from_network)
+                } else {
+                    stringResource(R.string.clipboard_from_local)
+                },
+                switchLabel = stringResource(R.string.switch_to_network),
+                onSwitch = { state.goTab(3) },
             )
         }
     }

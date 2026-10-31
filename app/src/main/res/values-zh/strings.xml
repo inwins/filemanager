@@ -396,4 +396,20 @@
     <string name="trash_original">原位置：%1$s</string>
 
     <string name="delete_trash_message">将 %d 项移入回收站？</string>
+
+    <string name="download_eta">剩余 %d 秒</string>
+
+    <string name="switch_to_local">本机</string>
+    <string name="switch_to_network">网络</string>
+    <string name="clipboard_from_local">来自本机存储</string>
+    <string name="clipboard_from_network">来自网络存储</string>
+
+    <string name="network_server_section">服务器</string>
+    <string name="network_login_section">登录</string>
+    <string name="network_path_section">共享与路径</string>
+    <string name="network_guest_hint">如果共享允许访客访问，可保持用户名和密码为空。</string>
+    <string name="network_fingerprint_hint">可选的 SHA256 指纹，例如 SHA256:AbCd...</string>
+    <string name="network_test_connection">测试连接</string>
+    <string name="network_testing">正在连接…</string>
+    <string name="network_connection_ok">连接成功</string>
 </resources>

@@ -5,7 +5,7 @@
 路径：仓库根目录
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
-当前版本：1.7.0（versionCode 12）
+当前版本：1.8.0（versionCode 13）
 
 界面与交互参考主流文件管理器，使用原创代码实现。依赖统一走
 阿里云 Maven 镜像；如需拉取 GitHub 参考项目，建议使用 gitclone、ghproxy
@@ -38,6 +38,8 @@ compileSdk 34 / minSdk 26 / targetSdk 34
    - 歌词显示：同名 .lrc 文件、时间轴同步、当前行高亮、自动滚动、偏移/元数据支持。
    - 本地、Root、SMB、SFTP 音频会自动查找同名 .lrc；远程歌词随音频缓存。
    - 远程目录支持多选、复制/剪切/删除；可粘贴到远程目录或本地目录，也支持本地复制后粘贴到远程。
+   - 剪贴板栏可直接在本机与网络存储之间切换；本机顶栏可一键进入网络，远程顶栏可一键返回本机。
+   - SMB/SFTP 上传/下载对话框显示百分比、进度条、速度、剩余时间和实时字节数。
    - 视频/音频可通过本机 HTTP 流媒体接口转发给 VLC 等外部播放器，支持 Range 拖动。
    - 压缩包预览/解压：ZIP、7Z、RAR、TAR、TAR.GZ、GZ；支持 AES 加密 ZIP 和分卷 ZIP 创建。
    - 文件哈希：MD5 / SHA-1 / SHA-256。
@@ -85,10 +87,11 @@ compileSdk 34 / minSdk 26 / targetSdk 34
    - Root 文件打开时会复制到缓存预览，编辑不会写回原文件。
 
 9. 网络存储
-   - 网络标签页支持 SMB2/SMB3 和 SFTP（密码登录）。
+   - 网络标签页支持 SMB2/SMB3 和 SFTP（密码或私钥登录）。
    - 添加/编辑/删除服务器；浏览共享目录、上传、下载、重命名、删除、属性。
+   - 添加/编辑对话框支持协议切换、测试连接、密码显隐、访客/域账号和可选 SHA-256 主机指纹。
    - 服务器密码使用 Android Keystore 加密保存。
-   - SFTP 暂未验证主机指纹；SMB 仅支持 SMB2/SMB3，不支持 SMB1。
+   - SMB 仅支持 SMB2/SMB3，不支持 SMB1。
 
 10. 更新日志
    - 设置 → 更新日志，内置中英文版本记录。

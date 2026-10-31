@@ -396,4 +396,20 @@
     <string name="trash_original">Original: %1$s</string>
 
     <string name="delete_trash_message">Move %d item(s) to the recycle bin?</string>
+
+    <string name="download_eta">%d s left</string>
+
+    <string name="switch_to_local">Local</string>
+    <string name="switch_to_network">Network</string>
+    <string name="clipboard_from_local">From local storage</string>
+    <string name="clipboard_from_network">From network storage</string>
+
+    <string name="network_server_section">Server</string>
+    <string name="network_login_section">Login</string>
+    <string name="network_path_section">Share and path</string>
+    <string name="network_guest_hint">Leave username and password empty when the share allows guests.</string>
+    <string name="network_fingerprint_hint">Optional SHA256 fingerprint, for example SHA256:AbCd...</string>
+    <string name="network_test_connection">Test connection</string>
+    <string name="network_testing">Connecting…</string>
+    <string name="network_connection_ok">Connection successful</string>
 </resources>
