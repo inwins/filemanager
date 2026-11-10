@@ -3,7 +3,6 @@
 
 项目：io.github.inwins.filebrowser
 GitHub：https://github.com/inwins
-路径：仓库根目录
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
 当前版本：1.9.0（versionCode 14）
@@ -113,15 +112,15 @@ compileSdk 34 / minSdk 26 / targetSdk 34
    验证：/opt/gradle-8.7/bin/gradle --version
 
 3. Android SDK
-   本机路径：$ANDROID_HOME
+   本机路径：$ANDROID_HOME（或 ~/sdk）
    需要：platforms;android-34、build-tools、platform-tools(adb)
    local.properties 中已配置：
-       sdk.dir=$ANDROID_HOME
+       sdk.dir=/path/to/android-sdk
    若换机器，请重新创建 local.properties 并写入自己的 SDK 路径。
 
 4. 设备调试
    adb 位于 ~/sdk/platform-tools/adb
-   测试机序列号：（已移除）（Redmi Note 8 Pro / Android 11 / 已 root）
+   测试机：Redmi Note 8 Pro / Android 11 / 已 root（序列号请勿写入仓库）
 
 
 三、构建 Debug APK
@@ -262,7 +261,7 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 
 九、目录结构
 ------------
-app/src/main/java/com/example/filebrowser/
+app/src/main/java/io/github/inwins/filebrowser/
   AppState.kt        全局状态、导航栈、剪贴板、文件操作调度
   MainActivity.kt    权限申请与 Compose 入口
   FileBrowserApp.kt Application
