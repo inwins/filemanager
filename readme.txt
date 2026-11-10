@@ -1,11 +1,12 @@
 文件浏览器 —— 构建说明
 ====================================
 
-项目：com.example.filebrowser
+项目：io.github.inwins.filebrowser
+GitHub：https://github.com/inwins
 路径：仓库根目录
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
-当前版本：1.8.0（versionCode 13）
+当前版本：1.9.0（versionCode 14）
 
 界面与交互参考主流文件管理器，使用原创代码实现。依赖统一走
 阿里云 Maven 镜像；如需拉取 GitHub 参考项目，建议使用 gitclone、ghproxy
@@ -211,13 +212,13 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 
 4. 授权（Android 11）：
 
-    $ADB shell "su -c 'appops set com.example.filebrowser MANAGE_EXTERNAL_STORAGE allow'"
+    $ADB shell "su -c 'appops set io.github.inwins.filebrowser MANAGE_EXTERNAL_STORAGE allow'"
 
    也可以打开应用后点击“去授权”，在系统设置中开启“所有文件访问权限”。
 
 5. 启动：
 
-    $ADB shell am start -n com.example.filebrowser/.MainActivity
+    $ADB shell am start -n io.github.inwins.filebrowser/.MainActivity
 
 重要：
 - 使用 -r 覆盖安装可保留设置、书签和最近记录；
@@ -256,7 +257,7 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 
 强制停止：
 
-    ~/sdk/platform-tools/adb shell am force-stop com.example.filebrowser
+    ~/sdk/platform-tools/adb shell am force-stop io.github.inwins.filebrowser
 
 
 九、目录结构
@@ -311,7 +312,7 @@ scripts/release.sh   发布脚本
 十、数据位置与注意事项
 ----------------------
 - 设置、书签、最近记录、阅读进度、阅读书签、网络服务器：
-  /data/data/com.example.filebrowser/shared_prefs/
+  /data/data/io.github.inwins.filebrowser/shared_prefs/
 - Root 预览缓存：应用 cache/root_preview/
 - 网络文件预览缓存：应用 cache/remote/
 - 分享 APK 临时文件：应用 cache/shared_apks/

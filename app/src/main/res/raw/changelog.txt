@@ -1,3 +1,8 @@
+v1.9.0
+- Changed the package name to io.github.inwins.filebrowser for GitHub releases.
+- Settings and data from the old com.example.filebrowser package are not migrated automatically.
+- The lyrics button is now disabled when no lyrics are available.
+
 v1.8.0
 - Redesigned the SMB/SFTP add/edit dialog with sections, protocol switching, connection testing, password visibility and a pinned action bar.
 - Upload/download dialogs now show percentage, progress, speed, ETA and live byte counts.

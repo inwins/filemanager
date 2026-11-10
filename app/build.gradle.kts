@@ -14,15 +14,15 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.filebrowser"
+    namespace = "io.github.inwins.filebrowser"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.filebrowser"
+        applicationId = "io.github.inwins.filebrowser"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.8.0"
+        versionCode = 14
+        versionName = "1.9.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
