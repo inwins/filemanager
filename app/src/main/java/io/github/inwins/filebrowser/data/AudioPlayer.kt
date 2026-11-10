@@ -16,7 +16,15 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.TransferListener
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import io.github.inwins.filebrowser.util.LrcParser
 import io.github.inwins.filebrowser.util.Lyrics
 import java.io.File
@@ -34,7 +42,18 @@ class AudioPlayer(
     context: Context,
     private val onError: (String) -> Unit,
 ) {
-    val exo: ExoPlayer = ExoPlayer.Builder(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val streamCache = SimpleCache(
+        File(appContext.cacheDir, "audio_stream_cache"),
+        LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
+    )
+    private val cacheDataSourceFactory = CacheDataSource.Factory()
+        .setCache(streamCache)
+        .setUpstreamDataSourceFactory(DefaultDataSource.Factory(appContext))
+    private val routingDataSourceFactory = RoutingDataSourceFactory(appContext, cacheDataSourceFactory)
+
+    val exo: ExoPlayer = ExoPlayer.Builder(appContext)
+        .setMediaSourceFactory(DefaultMediaSourceFactory(routingDataSourceFactory))
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -117,7 +136,7 @@ class AudioPlayer(
 
     fun play(items: List<FileItem>, startIndex: Int) {
         val playable = items.filter {
-            it.isAudio && (it.path.isNotBlank() || it.contentUri != null)
+            it.isAudio && (it.streamUrl != null || it.path.isNotBlank() || it.contentUri != null)
         }
         if (playable.isEmpty()) {
             onError("No playable audio")
@@ -129,16 +148,18 @@ class AudioPlayer(
         current = playable[index]
         currentIndex = index
         val mediaItems = playable.map { entry ->
-            val uri = if (entry.path.isNotBlank()) Uri.fromFile(File(entry.path))
-            else Uri.parse(entry.contentUri ?: "")
-            MediaItem.Builder()
+            val uri = entry.streamUrl?.let(Uri::parse)
+                ?: if (entry.path.isNotBlank()) Uri.fromFile(File(entry.path))
+                else Uri.parse(entry.contentUri ?: "")
+            val builder = MediaItem.Builder()
                 .setUri(uri)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(entry.name.substringBeforeLast('.'))
                         .build()
                 )
-                .build()
+            entry.streamCacheKey?.let { builder.setCustomCacheKey(it) }
+            builder.build()
         }
         exo.setMediaItems(mediaItems, index, 0L)
         exo.prepare()
@@ -200,19 +221,28 @@ class AudioPlayer(
         lyricsJob?.cancel()
         lyrics = null
         lyricsLoading = true
+        val explicit = item.lyricsPath?.let { File(it) }?.takeIf { it.isFile }
         val audioFile = if (item.path.isNotBlank()) File(item.path) else null
-        if (audioFile == null) {
+        if (explicit == null && audioFile == null) {
             lyricsLoading = false
             return
         }
         lyricsJob = scope.launch(Dispatchers.IO) {
-            val file = findLyricsFile(audioFile)
+            val file = explicit ?: audioFile?.let { findLyricsFile(it) }
             if (file != null) {
                 val parsed = runCatching { LrcParser.parse(readLyricsText(file)) }.getOrNull()
                 lyrics = parsed
             }
             lyricsLoading = false
         }
+    }
+
+    fun attachLyrics(cacheKey: String, lyricsPath: String) {
+        val index = queue.indexOfFirst { it.streamCacheKey == cacheKey }
+        if (index < 0) return
+        val updated = queue[index].copy(lyricsPath = lyricsPath)
+        queue = queue.toMutableList().also { it[index] = updated }
+        if (current?.streamCacheKey == cacheKey) loadLyrics(updated)
     }
 
     private fun findLyricsFile(audio: File): File? {
@@ -238,11 +268,15 @@ class AudioPlayer(
         artist = ""
         album = ""
         artwork = null
-        if (item.path.isBlank()) return
+        if (item.path.isBlank() && item.streamUrl.isNullOrBlank()) return
         metadataJob = scope.launch(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
             try {
-                retriever.setDataSource(item.path)
+                if (item.path.isNotBlank()) {
+                    retriever.setDataSource(item.path)
+                } else {
+                    retriever.setDataSource(item.streamUrl, emptyMap())
+                }
                 val metaTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
                 val metaArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                     ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
@@ -260,5 +294,48 @@ class AudioPlayer(
                 retriever.release()
             }
         }
+    }
+}
+
+private class RoutingDataSourceFactory(
+    context: Context,
+    private val cacheFactory: CacheDataSource.Factory,
+) : DataSource.Factory {
+    private val upstreamFactory = DefaultDataSource.Factory(context)
+
+    override fun createDataSource(): DataSource = RoutingDataSource(cacheFactory, upstreamFactory)
+}
+
+private class RoutingDataSource(
+    private val cacheFactory: CacheDataSource.Factory,
+    private val upstreamFactory: DataSource.Factory,
+) : DataSource {
+    private val listeners = mutableListOf<TransferListener>()
+    private var delegate: DataSource? = null
+
+    override fun addTransferListener(transferListener: TransferListener) {
+        listeners.add(transferListener)
+    }
+
+    override fun open(dataSpec: DataSpec): Long {
+        val scheme = dataSpec.uri.scheme?.lowercase()
+        val source = if (scheme == "http" || scheme == "https") {
+            cacheFactory.createDataSource()
+        } else {
+            upstreamFactory.createDataSource()
+        }
+        listeners.forEach(source::addTransferListener)
+        delegate = source
+        return source.open(dataSpec)
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+        delegate?.read(buffer, offset, length) ?: -1
+
+    override fun getUri(): Uri? = delegate?.uri
+
+    override fun close() {
+        delegate?.close()
+        delegate = null
     }
 }

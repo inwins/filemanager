@@ -16,6 +16,8 @@ sealed class Screen {
     data class Reader(val path: String) : Screen()
     data object Changelog : Screen()
     data object Network : Screen()
+    data class LanTransfer(val path: String?) : Screen()
+    data class LanPeer(val host: String, val port: Int, val token: String, val name: String) : Screen()
     data class RemoteBrowser(val profileId: String, val path: String) : Screen()
     data object AudioPlayer : Screen()
     data class ArchivePreview(val path: String) : Screen()

@@ -174,6 +174,8 @@ fun AppRoot(state: AppState) {
                 is Screen.Reader -> ReaderScreen(state, current.path)
                 is Screen.Changelog -> ChangelogScreen(state)
                 is Screen.Network -> NetworkScreen(state)
+                is Screen.LanTransfer -> LanTransferScreen(state, current.path)
+                is Screen.LanPeer -> LanPeerScreen(state, current)
                 is Screen.RemoteBrowser -> RemoteBrowserScreen(state, current)
                 is Screen.AudioPlayer -> AudioPlayerScreen(state)
                 is Screen.ArchivePreview -> ArchivePreviewScreen(state, current.path)

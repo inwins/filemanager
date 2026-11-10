@@ -36,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -217,6 +218,10 @@ private fun CoverPane(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                 maxLines = 1,
             )
+        }
+        if (player.isBuffering) {
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp))
         }
 
         val currentLine = player.lyrics

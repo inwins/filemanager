@@ -871,13 +871,69 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         }
     }
 
+    fun playRemoteAudio(entry: RemoteEntry, media: FileItem, system: RemoteFileSystem) {
+        val mime = media.mime ?: "audio/*"
+        val token = StreamRegistry.register(
+            profileId = profile.id,
+            remotePath = entry.path,
+            name = entry.name,
+            mime = mime,
+            size = entry.size,
+        )
+        val port = runCatching { RemoteStreamServer.start(context) }.getOrElse {
+            state.showMessage(context.getString(R.string.stream_start_failed))
+            return
+        }
+        RemoteStreamService.start(context)
+        val cacheKey = "remote:${profile.id}:${entry.path}:${entry.size}:${entry.lastModified}"
+        val streamItem = media.copy(
+            path = "",
+            contentUri = null,
+            streamUrl = "http://127.0.0.1:$port/stream/$token",
+            streamCacheKey = cacheKey,
+            remote = true,
+        )
+        state.playAudio(streamItem, listOf(streamItem))
+        state.launchBackground {
+            val base = entry.name.substringBeforeLast('.')
+            val parentPath = RemoteFileSystems.parent(entry.path)
+            val lrcSystem = runCatching { RemoteFileSystems.open(profile) }.getOrNull() ?: return@launchBackground
+            try {
+                val lrc = withContext(Dispatchers.IO) {
+                    runCatching {
+                        lrcSystem.list(parentPath).firstOrNull {
+                            !it.isDirectory &&
+                                it.name.endsWith(".lrc", ignoreCase = true) &&
+                                it.name.substringBeforeLast('.').equals(base, ignoreCase = true)
+                        }
+                    }.getOrNull()
+                } ?: return@launchBackground
+                val cacheDir = File(
+                    File(context.cacheDir, "remote_lyrics/${profile.id.hashCode()}"),
+                    abs(entry.path.hashCode()).toString(),
+                ).apply { mkdirs() }
+                val destination = File(cacheDir, "$base.lrc")
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching { lrcSystem.download(lrc.path, destination, -1L) }.isSuccess
+                }
+                if (ok) state.audioPlayer.attachLyrics(cacheKey, destination.path)
+            } finally {
+                runCatching { lrcSystem.close() }
+            }
+        }
+    }
+
     fun openEntry(entry: RemoteEntry) {
         if (entry.isDirectory) {
             currentPath = entry.path
             return
         }
         val system = fs ?: return
-        val isAudio = entry.toFileItem().isAudio
+        val media = entry.toFileItem()
+        if (media.isAudio) {
+            playRemoteAudio(entry, media, system)
+            return
+        }
         scope.launch {
             beginTask(context.getString(R.string.network_downloading), entry.size, entry.name)
             val cacheDir = File(
@@ -929,29 +985,6 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                     )
                 )
                 return@launch
-            }
-            if (isAudio) {
-                val base = entry.name.substringBeforeLast('.')
-                val parentPath = RemoteFileSystems.parent(entry.path)
-                val lrc = runCatching {
-                    system.list(parentPath).firstOrNull {
-                        !it.isDirectory &&
-                            it.name.endsWith(".lrc", ignoreCase = true) &&
-                            it.name.substringBeforeLast('.').equals(base, ignoreCase = true)
-                    }
-                }.getOrNull()
-                if (lrc != null && !cancelRequested) {
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            system.download(
-                                lrc.path,
-                                File(cacheDir, "$base.lrc"),
-                                -1L,
-                                shouldContinue = { !cancelRequested },
-                            )
-                        }
-                    }
-                }
             }
             finishTask(null)
             val local = state.repository.toItem(dest).copy(name = entry.name)

@@ -190,6 +190,8 @@ class AppState(context: Context) {
         }.getOrDefault(false)
     }
 
+    fun launchBackground(block: suspend CoroutineScope.() -> Unit): Job = scope.launch { block() }
+
     fun refreshPermission() {
         permissionGranted = hasStoragePermission()
     }
@@ -423,7 +425,9 @@ class AppState(context: Context) {
     }
 
     fun playAudio(item: FileItem, siblings: List<FileItem> = listOf(item)) {
-        val audio = siblings.filter { it.isAudio && (it.path.isNotBlank() || it.contentUri != null) }
+        val audio = siblings.filter {
+            it.isAudio && (it.streamUrl != null || it.path.isNotBlank() || it.contentUri != null)
+        }
             .ifEmpty { listOf(item) }
         val index = audio.indexOfFirst { it.path == item.path }.coerceAtLeast(0)
         audioPlayer.play(audio, index)

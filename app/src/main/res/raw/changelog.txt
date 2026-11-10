@@ -1,3 +1,11 @@
+v1.10.0
+- Added LAN file transfer: devices on the same Wi-Fi can browse, upload, download and create folders in a browser.
+- Two app instances discover each other automatically and can browse, upload and download files in the app.
+- Audio from SMB/SFTP and LAN peers now streams directly and is cached locally while playing.
+- The web page supports drag-and-drop, multi-file upload, Chinese file names and ranged downloads.
+- Added LAN transfer to Settings, and a folder menu action to share the current directory.
+- Access is protected by a random token and path traversal checks, and only the selected folder is shared.
+
 v1.9.0
 - Changed the package name to io.github.inwins.filebrowser for GitHub releases.
 - Settings and data from the old com.example.filebrowser package are not migrated automatically.

@@ -32,6 +32,9 @@ data class FileItem(
     val root: Boolean = false,
     val remote: Boolean = false,
     val thumbnailUrl: String? = null,
+    val streamUrl: String? = null,
+    val streamCacheKey: String? = null,
+    val lyricsPath: String? = null,
 ) {
     val isHidden: Boolean get() = name.startsWith(".")
     val extension: String get() = name.substringAfterLast('.', "").lowercase()

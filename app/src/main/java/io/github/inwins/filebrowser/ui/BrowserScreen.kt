@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
@@ -354,6 +355,11 @@ fun BrowserScreen(state: AppState, screen: Screen.Browser) {
                     label = stringResource(R.string.cleaner_title),
                     icon = Icons.Filled.CleaningServices,
                     onClick = { state.navigate(Screen.Cleaner(screen.path)) },
+                ),
+                SheetAction(
+                    label = stringResource(R.string.lan_transfer),
+                    icon = Icons.Filled.WifiTethering,
+                    onClick = { state.navigate(Screen.LanTransfer(screen.path)) },
                 ),
                 SheetAction(
                     label = stringResource(R.string.refresh),
