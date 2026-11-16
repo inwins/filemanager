@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -62,6 +63,7 @@ import io.github.inwins.filebrowser.lan.LanTransferServer
 import io.github.inwins.filebrowser.lan.LanTransferService
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,9 +87,16 @@ fun LanTransferScreen(state: AppState, initialPath: String?) {
     var scanning by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
+        var signature = ""
+        var ticks = 0
         while (true) {
             running = LanTransferServer.running
-            urls = LanTransferServer.urls()
+            val current = LanTransferServer.port.toString() + ":" + LanTransferServer.token
+            if (current != signature || ticks % 4 == 0) {
+                signature = current
+                urls = withContext(Dispatchers.IO) { LanTransferServer.urls() }
+            }
+            ticks++
             delay(600)
         }
     }
@@ -95,7 +104,13 @@ fun LanTransferScreen(state: AppState, initialPath: String?) {
     LaunchedEffect(Unit) {
         while (true) {
             scanning = true
-            peers = withContext(Dispatchers.IO) { LanDiscovery.scan(2600) }
+            peers = try {
+                withContext(Dispatchers.IO) { LanDiscovery.scan(2600) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                emptyList()
+            }
             scanning = false
             delay(1200)
         }
@@ -113,7 +128,7 @@ fun LanTransferScreen(state: AppState, initialPath: String?) {
             .onFailure { state.message = it.message }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         TopAppBar(
             title = { Text(stringResource(R.string.lan_transfer)) },
         )
@@ -193,10 +208,21 @@ fun LanTransferScreen(state: AppState, initialPath: String?) {
                                     starting = true
                                     scope.launch {
                                         if (!root.exists()) root.mkdirs()
-                                        LanTransferService.start(context, root)
-                                        delay(500)
+                                        val started = runCatching {
+                                            LanTransferService.start(context, root)
+                                        }.isSuccess
+                                        if (!started) {
+                                            starting = false
+                                            state.message = context.getString(R.string.lan_transfer_start_failed)
+                                            return@launch
+                                        }
+                                        var waited = 0
+                                        while (waited < 2_000 && !LanTransferServer.running) {
+                                            delay(100)
+                                            waited += 100
+                                        }
                                         running = LanTransferServer.running
-                                        urls = LanTransferServer.urls()
+                                        urls = withContext(Dispatchers.IO) { LanTransferServer.urls() }
                                         starting = false
                                         if (!running) {
                                             state.message = context.getString(R.string.lan_transfer_start_failed)
@@ -276,7 +302,12 @@ fun LanTransferScreen(state: AppState, initialPath: String?) {
                             )
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(peer.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    peer.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                                 Text(
                                     "${peer.host}:${peer.port}",
                                     style = MaterialTheme.typography.bodySmall,

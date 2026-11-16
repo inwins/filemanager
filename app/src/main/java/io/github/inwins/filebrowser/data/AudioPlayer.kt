@@ -23,6 +23,7 @@ import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import io.github.inwins.filebrowser.util.LrcParser
@@ -43,13 +44,19 @@ class AudioPlayer(
     private val onError: (String) -> Unit,
 ) {
     private val appContext = context.applicationContext
-    private val streamCache = SimpleCache(
-        File(appContext.cacheDir, "audio_stream_cache"),
-        LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
-    )
-    private val cacheDataSourceFactory = CacheDataSource.Factory()
-        .setCache(streamCache)
-        .setUpstreamDataSourceFactory(DefaultDataSource.Factory(appContext))
+    private val streamCache: SimpleCache? = runCatching {
+        SimpleCache(
+            File(appContext.cacheDir, "audio_stream_cache"),
+            LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
+            StandaloneDatabaseProvider(appContext),
+        )
+    }.getOrNull()
+    private val cacheDataSourceFactory: CacheDataSource.Factory? = streamCache?.let { cache ->
+        CacheDataSource.Factory()
+            .setCache(cache)
+            .setUpstreamDataSourceFactory(DefaultDataSource.Factory(appContext))
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+    }
     private val routingDataSourceFactory = RoutingDataSourceFactory(appContext, cacheDataSourceFactory)
 
     val exo: ExoPlayer = ExoPlayer.Builder(appContext)
@@ -229,11 +236,11 @@ class AudioPlayer(
         }
         lyricsJob = scope.launch(Dispatchers.IO) {
             val file = explicit ?: audioFile?.let { findLyricsFile(it) }
-            if (file != null) {
-                val parsed = runCatching { LrcParser.parse(readLyricsText(file)) }.getOrNull()
+            val parsed = file?.let { runCatching { LrcParser.parse(readLyricsText(it)) }.getOrNull() }
+            if (isActive) {
                 lyrics = parsed
+                lyricsLoading = false
             }
-            lyricsLoading = false
         }
     }
 
@@ -285,6 +292,7 @@ class AudioPlayer(
                 val bitmap = picture?.let {
                     BitmapFactory.decodeByteArray(it, 0, it.size)
                 }
+                if (!isActive) return@launch
                 if (metaTitle?.isNotBlank() == true) title = metaTitle
                 artist = metaArtist.orEmpty()
                 album = metaAlbum.orEmpty()
@@ -299,7 +307,7 @@ class AudioPlayer(
 
 private class RoutingDataSourceFactory(
     context: Context,
-    private val cacheFactory: CacheDataSource.Factory,
+    private val cacheFactory: CacheDataSource.Factory?,
 ) : DataSource.Factory {
     private val upstreamFactory = DefaultDataSource.Factory(context)
 
@@ -307,7 +315,7 @@ private class RoutingDataSourceFactory(
 }
 
 private class RoutingDataSource(
-    private val cacheFactory: CacheDataSource.Factory,
+    private val cacheFactory: CacheDataSource.Factory?,
     private val upstreamFactory: DataSource.Factory,
 ) : DataSource {
     private val listeners = mutableListOf<TransferListener>()
@@ -318,9 +326,11 @@ private class RoutingDataSource(
     }
 
     override fun open(dataSpec: DataSpec): Long {
+        runCatching { delegate?.close() }
         val scheme = dataSpec.uri.scheme?.lowercase()
-        val source = if (scheme == "http" || scheme == "https") {
-            cacheFactory.createDataSource()
+        val cache = cacheFactory
+        val source = if ((scheme == "http" || scheme == "https") && cache != null) {
+            cache.createDataSource()
         } else {
             upstreamFactory.createDataSource()
         }
@@ -335,7 +345,11 @@ private class RoutingDataSource(
     override fun getUri(): Uri? = delegate?.uri
 
     override fun close() {
-        delegate?.close()
+        val current = delegate
         delegate = null
+        current?.close()
     }
+
+    override fun getResponseHeaders(): Map<String, List<String>> =
+        delegate?.responseHeaders ?: emptyMap()
 }

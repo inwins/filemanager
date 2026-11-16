@@ -105,18 +105,30 @@ object LanClient {
             }
             val total = connection.contentLengthLong
             destination.parentFile?.mkdirs()
-            connection.inputStream.use { input ->
-                destination.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var received = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        received += read
-                        onProgress(received, total)
+            if (destination.exists()) throw IOException("Destination already exists")
+            val partial = File(destination.path + ".part")
+            try {
+                connection.inputStream.use { input ->
+                    partial.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var received = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            received += read
+                            onProgress(received, total)
+                        }
                     }
                 }
+                if (!partial.renameTo(destination)) {
+                    destination.delete()
+                    if (!partial.renameTo(destination)) {
+                        throw IOException("Cannot save file")
+                    }
+                }
+            } finally {
+                if (partial.exists()) partial.delete()
             }
         } finally {
             connection.disconnect()

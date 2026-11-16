@@ -10,17 +10,20 @@ import java.nio.charset.StandardCharsets
 object LanDiscovery {
     const val DISCOVERY_PORT = 18855
     const val APP_ID = "io.github.inwins.filebrowser"
+    private const val MAX_PEERS = 50
 
     fun scan(timeoutMs: Long = 2600L): List<LanPeer> {
         val peers = linkedMapOf<String, LanPeer>()
-        val socket = runCatching {
-            DatagramSocket(null).apply {
-                reuseAddress = true
-                broadcast = true
-                bind(InetSocketAddress(DISCOVERY_PORT))
-                soTimeout = 350
-            }
-        }.getOrNull() ?: return emptyList()
+        val socket = runCatching { DatagramSocket(null) }.getOrNull() ?: return emptyList()
+        try {
+            socket.reuseAddress = true
+            socket.broadcast = true
+            socket.bind(InetSocketAddress(DISCOVERY_PORT))
+            socket.soTimeout = 350
+        } catch (_: Exception) {
+            runCatching { socket.close() }
+            return emptyList()
+        }
         val buffer = ByteArray(4096)
         val deadline = System.currentTimeMillis() + timeoutMs
         try {
@@ -36,6 +39,7 @@ object LanDiscovery {
                 val text = String(packet.data, 0, packet.length, StandardCharsets.UTF_8)
                 val peer = parse(text, packet.address.hostAddress ?: continue) ?: continue
                 if (peer.id == LanTransferServer.deviceId) continue
+                if (peer.id !in peers && peers.size >= MAX_PEERS) continue
                 peers[peer.id] = peer
             }
         } finally {

@@ -871,7 +871,7 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         }
     }
 
-    fun playRemoteAudio(entry: RemoteEntry, media: FileItem, system: RemoteFileSystem) {
+    fun playRemoteAudio(entry: RemoteEntry, media: FileItem) {
         val mime = media.mime ?: "audio/*"
         val token = StreamRegistry.register(
             profileId = profile.id,
@@ -895,7 +895,10 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         )
         state.playAudio(streamItem, listOf(streamItem))
         state.launchBackground {
-            val base = entry.name.substringBeforeLast('.')
+            val base = entry.name
+                .substringBeforeLast('.')
+                .substringAfterLast('/')
+                .ifBlank { "file" }
             val parentPath = RemoteFileSystems.parent(entry.path)
             val lrcSystem = runCatching { RemoteFileSystems.open(profile) }.getOrNull() ?: return@launchBackground
             try {
@@ -913,7 +916,7 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
                     abs(entry.path.hashCode()).toString(),
                 ).apply { mkdirs() }
                 val destination = File(cacheDir, "$base.lrc")
-                val ok = withContext(Dispatchers.IO) {
+                val ok = destination.exists() || withContext(Dispatchers.IO) {
                     runCatching { lrcSystem.download(lrc.path, destination, -1L) }.isSuccess
                 }
                 if (ok) state.audioPlayer.attachLyrics(cacheKey, destination.path)
@@ -931,7 +934,7 @@ fun RemoteBrowserScreen(state: AppState, screen: Screen.RemoteBrowser) {
         val system = fs ?: return
         val media = entry.toFileItem()
         if (media.isAudio) {
-            playRemoteAudio(entry, media, system)
+            playRemoteAudio(entry, media)
             return
         }
         scope.launch {

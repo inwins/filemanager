@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
@@ -61,11 +63,13 @@ import io.github.inwins.filebrowser.data.FileOps
 import io.github.inwins.filebrowser.lan.LanClient
 import io.github.inwins.filebrowser.lan.LanEntry
 import io.github.inwins.filebrowser.lan.LanPeer
+import io.github.inwins.filebrowser.lan.LanTransferPaths
 import io.github.inwins.filebrowser.util.Format
 import io.github.inwins.filebrowser.util.MimeTypes
 import java.io.File
 import java.io.IOException
 import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -105,34 +109,19 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
     val uploadUris: (List<Uri>) -> Unit = { uris ->
         if (uris.isNotEmpty()) {
             scope.launch {
+                val targetPath = path
                 var done = 0
-                uris.forEachIndexed { index, uri ->
-                    val name = queryName(context, uri) ?: "file"
-                    val size = querySize(context, uri)
-                    val title = context.getString(R.string.lan_peer_uploading, index + 1, uris.size)
-                    task = PeerTask(title, name, 0f)
-                    try {
-                        if (size >= 0) {
-                            context.contentResolver.openInputStream(uri)?.use { input ->
-                                withContext(Dispatchers.IO) {
-                                    LanClient.upload(peer, path, name, size, input) { sent, total ->
-                                        task = PeerTask(
-                                            title,
-                                            name,
-                                            if (total > 0) (sent.toDouble() / total).toFloat().coerceIn(0f, 1f) else null,
-                                        )
-                                    }
-                                }
-                            } ?: throw IOException("Cannot open file")
-                        } else {
-                            val temp = File(context.cacheDir, "lan_upload_${System.nanoTime()}")
-                            try {
+                try {
+                    uris.forEachIndexed { index, uri ->
+                        val name = LanTransferPaths.safeFileName(queryName(context, uri) ?: "file")
+                        val size = querySize(context, uri)
+                        val title = context.getString(R.string.lan_peer_uploading, index + 1, uris.size)
+                        task = PeerTask(title, name, 0f)
+                        try {
+                            if (size >= 0) {
                                 context.contentResolver.openInputStream(uri)?.use { input ->
-                                    temp.outputStream().use { output -> input.copyTo(output) }
-                                } ?: throw IOException("Cannot open file")
-                                withContext(Dispatchers.IO) {
-                                    temp.inputStream().use { input ->
-                                        LanClient.upload(peer, path, name, temp.length(), input) { sent, total ->
+                                    withContext(Dispatchers.IO) {
+                                        LanClient.upload(peer, targetPath, name, size, input) { sent, total ->
                                             task = PeerTask(
                                                 title,
                                                 name,
@@ -140,23 +129,44 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
                                             )
                                         }
                                     }
+                                } ?: throw IOException("Cannot open file")
+                            } else {
+                                val temp = File(context.cacheDir, "lan_upload_${System.nanoTime()}")
+                                try {
+                                    context.contentResolver.openInputStream(uri)?.use { input ->
+                                        temp.outputStream().use { output -> input.copyTo(output) }
+                                    } ?: throw IOException("Cannot open file")
+                                    withContext(Dispatchers.IO) {
+                                        temp.inputStream().use { input ->
+                                            LanClient.upload(peer, targetPath, name, temp.length(), input) { sent, total ->
+                                                task = PeerTask(
+                                                    title,
+                                                    name,
+                                                    if (total > 0) (sent.toDouble() / total).toFloat().coerceIn(0f, 1f) else null,
+                                                )
+                                            }
+                                        }
+                                    }
+                                } finally {
+                                    temp.delete()
                                 }
-                            } finally {
-                                temp.delete()
                             }
-                        }
-                        done++
-                    } catch (error: Exception) {
-                        showError(
-                            context.getString(
-                                R.string.lan_peer_upload_failed,
-                                error.message ?: error.javaClass.simpleName,
+                            done++
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            showError(
+                                context.getString(
+                                    R.string.lan_peer_upload_failed,
+                                    error.message ?: error.javaClass.simpleName,
+                                )
                             )
-                        )
-                        return@launch
+                            return@launch
+                        }
                     }
+                } finally {
+                    task = null
                 }
-                task = null
                 if (done > 0) {
                     showError(context.getString(R.string.lan_peer_upload_done, done))
                     refresh++
@@ -173,7 +183,13 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
         loading = true
         error = null
         val result = withContext(Dispatchers.IO) {
-            runCatching { LanClient.list(peer, path) }
+            try {
+                Result.success(LanClient.list(peer, path))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
         }
         result.onSuccess {
             entries = it.sortedWith(
@@ -187,21 +203,22 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
     }
 
     fun playAudio(entry: LanEntry) {
+        val safeName = LanTransferPaths.safeFileName(entry.name)
         val cacheKey = "lan:${peer.id}:${entry.path}:${entry.size}:${entry.modified}"
         val media = FileItem(
             path = "",
-            name = entry.name,
+            name = safeName,
             isDirectory = false,
             size = entry.size,
             lastModified = entry.modified,
-            mime = MimeTypes.fromName(entry.name),
+            mime = MimeTypes.fromName(safeName),
             remote = true,
             streamUrl = LanClient.fileUrl(peer, entry.path),
             streamCacheKey = cacheKey,
         )
         state.playAudio(media, listOf(media))
         state.launchBackground {
-            val base = entry.name.substringBeforeLast('.')
+            val base = safeName.substringBeforeLast('.')
             val parent = if (entry.path.contains('/')) entry.path.substringBeforeLast('/') else ""
             val lrc = withContext(Dispatchers.IO) {
                 runCatching {
@@ -217,7 +234,7 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
                 abs(entry.path.hashCode()).toString(),
             ).apply { mkdirs() }
             val destination = File(directory, "$base.lrc")
-            val ok = withContext(Dispatchers.IO) {
+            val ok = destination.exists() || withContext(Dispatchers.IO) {
                 runCatching { LanClient.download(peer, lrc.path, destination) }.isSuccess
             }
             if (ok) state.audioPlayer.attachLyrics(cacheKey, destination.path)
@@ -230,7 +247,9 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
                 "LanTransferReceived",
             ).apply { mkdirs() }
-            val destination = FileOps.uniqueFile(File(directory, entry.name))
+            val destination = FileOps.uniqueFile(
+                File(directory, LanTransferPaths.safeFileName(entry.name))
+            )
             task = PeerTask(
                 context.getString(R.string.lan_peer_downloading),
                 entry.name,
@@ -250,6 +269,9 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
                     MediaScannerConnection.scanFile(context, arrayOf(destination.path), null, null)
                 }
                 showError(context.getString(R.string.lan_peer_saved, destination.path))
+            } catch (error: CancellationException) {
+                destination.delete()
+                throw error
             } catch (error: Exception) {
                 destination.delete()
                 showError(
@@ -264,7 +286,7 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         TopAppBar(
             navigationIcon = {
                 IconButton(onClick = { state.back() }) {
@@ -316,13 +338,13 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                stringResource(R.string.lan_peer_download_hint),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                maxLines = 1,
-            )
         }
+        Text(
+            stringResource(R.string.lan_peer_download_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
+        )
 
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -383,6 +405,14 @@ fun LanPeerScreen(state: AppState, screen: Screen.LanPeer) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                        if (!entry.directory && entry.isAudio()) {
+                            IconButton(onClick = { download(entry) }) {
+                                Icon(
+                                    Icons.Filled.Download,
+                                    contentDescription = stringResource(R.string.network_download),
+                                )
+                            }
                         }
                     }
                 }

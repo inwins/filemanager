@@ -104,9 +104,38 @@ class LanTransferServerTest {
         assertEquals(1, entries.size)
         assertEquals("互传.txt", entries.first().name)
 
-        val destination = temp.newFile("received.txt")
+        val destination = File(temp.root, "received.txt")
         LanClient.download(peer, entries.first().path, destination)
         assertEquals("app to app", destination.readText())
+    }
+
+
+    @Test
+    fun supportsEmptyFilesAndUniqueNames() {
+        val empty = request("$base/api/upload?path=&name=empty.txt", "PUT", ByteArray(0))
+        assertEquals(200, empty.code)
+        assertEquals(0L, File(root, "empty.txt").length())
+
+        val first = request("$base/api/upload?path=&name=dup.txt", "PUT", "one".toByteArray())
+        val second = request("$base/api/upload?path=&name=dup.txt", "PUT", "two".toByteArray())
+        assertEquals(200, first.code)
+        assertEquals(200, second.code)
+        assertEquals("one", File(root, "dup.txt").readText())
+        assertEquals("two", File(root, "dup (1).txt").readText())
+    }
+
+    @Test
+    fun clientUploadsEmptyFile() {
+        val peer = LanPeer(
+            id = "local",
+            name = "Local",
+            host = "127.0.0.1",
+            port = LanTransferServer.port,
+            token = LanTransferServer.token,
+        )
+        LanClient.upload(peer, "", "empty-client.txt", 0L, ByteArrayInputStream(ByteArray(0)))
+        assertTrue(File(root, "empty-client.txt").exists())
+        assertEquals(0L, File(root, "empty-client.txt").length())
     }
 
     @Test

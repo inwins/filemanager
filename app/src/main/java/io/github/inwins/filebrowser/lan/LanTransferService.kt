@@ -27,24 +27,27 @@ class LanTransferService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        val rootPath = intent?.getStringExtra(EXTRA_ROOT)
-        if (rootPath.isNullOrBlank()) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        if (!LanTransferServer.start(this, File(rootPath))) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
         val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        val foregroundStarted = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }.isSuccess
+        if (!foregroundStarted) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val rootPath = intent?.getStringExtra(EXTRA_ROOT)
+        val started = !rootPath.isNullOrBlank() &&
+            runCatching { LanTransferServer.start(this, File(rootPath)) }.getOrDefault(false)
+        if (!started) {
+            stopSelf()
         }
         return START_NOT_STICKY
     }

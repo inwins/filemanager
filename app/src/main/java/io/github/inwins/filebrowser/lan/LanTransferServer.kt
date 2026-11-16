@@ -4,7 +4,6 @@ import android.content.Context
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
-import io.github.inwins.filebrowser.data.FileOps
 import io.github.inwins.filebrowser.util.MimeTypes
 import io.github.inwins.filebrowser.util.Paths
 import io.github.inwins.filebrowser.util.StreamRangeParser
@@ -29,9 +28,9 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Collections
+import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.random.Random
 
 object LanTransferServer {
     private var serverSocket: ServerSocket? = null
@@ -75,16 +74,23 @@ object LanTransferServer {
         val newToken = randomToken()
         var socket: ServerSocket? = null
         for (candidate in PORT_START..PORT_END) {
+            val s = ServerSocket()
             try {
-                val s = ServerSocket()
                 s.reuseAddress = true
                 s.bind(InetSocketAddress(candidate), 50)
                 socket = s
                 break
             } catch (_: IOException) {
+                runCatching { s.close() }
             }
         }
-        val server = socket ?: return false
+        val server = socket
+        if (server == null) {
+            appContext = null
+            shareRoot = null
+            token = ""
+            return false
+        }
         token = newToken
         deviceId = UUID.randomUUID().toString()
         port = server.localPort
@@ -139,9 +145,13 @@ object LanTransferServer {
 
     private fun startDiscovery() {
         discoveryThread = Thread({
-            val socket = runCatching {
-                DatagramSocket().apply { broadcast = true }
-            }.getOrNull() ?: return@Thread
+            val socket = runCatching { DatagramSocket() }.getOrNull() ?: return@Thread
+            try {
+                socket.broadcast = true
+            } catch (_: Exception) {
+                runCatching { socket.close() }
+                return@Thread
+            }
             try {
                 while (running) {
                     val payload = JSONObject()
@@ -153,15 +163,19 @@ object LanTransferServer {
                         .toString()
                         .toByteArray(StandardCharsets.UTF_8)
                     val targets = linkedSetOf<InetAddress>()
-                    runCatching { targets.add(InetAddress.getByName("255.255.255.255")) }
                     runCatching {
                         for (network in Collections.list(NetworkInterface.getNetworkInterfaces())) {
                             if (!network.isUp || network.isLoopback) continue
                             for (address in network.interfaceAddresses) {
+                                val local = address.address
+                                if (local !is Inet4Address || !local.isSiteLocalAddress) continue
                                 val broadcast = address.broadcast ?: continue
                                 if (broadcast is Inet4Address) targets.add(broadcast)
                             }
                         }
+                    }
+                    if (targets.isEmpty()) {
+                        runCatching { targets.add(InetAddress.getByName("255.255.255.255")) }
                     }
                     targets.forEach { target ->
                         runCatching {
@@ -205,8 +219,10 @@ object LanTransferServer {
         return result
     }
 
+    private val secureRandom = SecureRandom()
+
     private fun randomToken(): String =
-        (1..8).map { TOKEN_ALPHABET[Random.nextInt(TOKEN_ALPHABET.length)] }.joinToString("")
+        (1..8).map { TOKEN_ALPHABET[secureRandom.nextInt(TOKEN_ALPHABET.length)] }.joinToString("")
 
     private fun handle(socket: Socket) {
         socket.soTimeout = 30_000
@@ -219,6 +235,7 @@ object LanTransferServer {
         val method = parts[0].uppercase()
         val target = parts[1]
         var contentLength = 0L
+        var hasContentLength = false
         var rangeHeader: String? = null
         var expectContinue = false
         while (true) {
@@ -229,7 +246,13 @@ object LanTransferServer {
             val name = line.substring(0, colon).trim().lowercase()
             val value = line.substring(colon + 1).trim()
             when (name) {
-                "content-length" -> contentLength = value.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+                "content-length" -> {
+                    val parsed = value.toLongOrNull()
+                    if (parsed != null) {
+                        contentLength = parsed.coerceAtLeast(0L)
+                        hasContentLength = true
+                    }
+                }
                 "range" -> rangeHeader = value
                 "expect" -> if (value.contains("100-continue", ignoreCase = true)) expectContinue = true
             }
@@ -239,8 +262,12 @@ object LanTransferServer {
             output.flush()
         }
 
+        if (!running) {
+            respondError(output, 503, "Service unavailable")
+            return
+        }
         val root = shareRoot
-        if (root == null || !running) {
+        if (root == null) {
             respondError(output, 503, "Service unavailable")
             return
         }
@@ -265,7 +292,7 @@ object LanTransferServer {
                 else -> respondError(output, 404, "Not found")
             }
             method == "PUT" && route == "/api/upload" ->
-                handleUpload(input, output, root, query, contentLength)
+                handleUpload(input, output, root, query, contentLength, hasContentLength)
             method == "POST" && route == "/api/mkdir" ->
                 handleMkdir(output, root, query)
             else -> respondError(output, 405, "Method not allowed")
@@ -318,6 +345,17 @@ object LanTransferServer {
             return
         }
         val total = file.length()
+        if (total == 0L && rangeHeader != null) {
+            val header = buildString {
+                append("HTTP/1.1 416 Range Not Satisfiable\r\n")
+                append("Content-Range: bytes */0\r\n")
+                append("Content-Length: 0\r\n")
+                append("Connection: close\r\n\r\n")
+            }
+            output.write(header.toByteArray(StandardCharsets.ISO_8859_1))
+            output.flush()
+            return
+        }
         val range = if (total > 0) {
             StreamRangeParser.parse(rangeHeader, total) ?: run {
                 val header = buildString {
@@ -376,13 +414,14 @@ object LanTransferServer {
         root: File,
         query: Map<String, String>,
         contentLength: Long,
+        hasContentLength: Boolean,
     ) {
         val name = query["name"].orEmpty()
         if (!Paths.safeName(name)) {
             respondError(output, 400, "Invalid file name")
             return
         }
-        if (contentLength <= 0) {
+        if (!hasContentLength || contentLength < 0) {
             respondError(output, 411, "Content-Length required")
             return
         }
@@ -394,7 +433,10 @@ object LanTransferServer {
             respondError(output, 404, "Folder not found")
             return
         }
-        val destination = FileOps.uniqueFile(File(dir, name))
+        val destination = uniqueDestination(dir, name) ?: run {
+            respondError(output, 500, "Cannot create file")
+            return
+        }
         try {
             destination.outputStream().use { out ->
                 copyExactly(input, out, contentLength)
@@ -432,12 +474,8 @@ object LanTransferServer {
             return
         }
         val target = File(dir, name)
-        if (target.exists()) {
-            respondError(output, 409, "Already exists")
-            return
-        }
         if (!target.mkdir()) {
-            respondError(output, 500, "Cannot create folder")
+            respondError(output, if (target.exists()) 409 else 500, "Cannot create folder")
             return
         }
         val body = JSONObject()
@@ -445,6 +483,25 @@ object LanTransferServer {
             .put("path", LanTransferPaths.relative(root, target))
             .toString()
         respondJson(output, 200, body, false)
+    }
+
+    private fun uniqueDestination(dir: File, name: String): File? {
+        try {
+            val direct = File(dir, name)
+            if (direct.createNewFile()) return direct
+            val dot = name.lastIndexOf('.')
+            val base = if (dot > 0) name.substring(0, dot) else name
+            val extension = if (dot > 0) name.substring(dot) else ""
+            var index = 1
+            while (index < Int.MAX_VALUE) {
+                val candidate = File(dir, "$base ($index)$extension")
+                if (candidate.createNewFile()) return candidate
+                index++
+            }
+        } catch (_: IOException) {
+            return null
+        }
+        return null
     }
 
     private fun copyExactly(input: InputStream, output: OutputStream, length: Long) {
@@ -498,7 +555,7 @@ object LanTransferServer {
         val html = HTML_TEMPLATE
             .replace("__TOKEN__", token)
             .replace("__DEVICE__", escapeHtml(Build.MODEL ?: "Android"))
-            .replace("__FOLDER__", escapeHtml(root.name))
+            .replace("__FOLDER__", escapeHtml(root.name.ifBlank { root.path }))
         respond(output, 200, "OK", "text/html; charset=utf-8", html.toByteArray(StandardCharsets.UTF_8), headOnly)
     }
 

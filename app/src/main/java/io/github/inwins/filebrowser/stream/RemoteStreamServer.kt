@@ -32,13 +32,14 @@ object RemoteStreamServer {
         appContext = context.applicationContext
         var socket: ServerSocket? = null
         for (candidate in PORT_START..PORT_END) {
+            val s = ServerSocket()
             try {
-                val s = ServerSocket()
                 s.reuseAddress = true
                 s.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), candidate), 32)
                 socket = s
                 break
             } catch (_: IOException) {
+                runCatching { s.close() }
             }
         }
         val server = socket ?: throw IOException("No free streaming port")
