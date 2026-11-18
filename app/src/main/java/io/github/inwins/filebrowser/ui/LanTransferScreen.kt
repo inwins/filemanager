@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.FolderOpen
@@ -130,6 +131,14 @@ fun LanTransferScreen(state: AppState, initialPath: String?) {
 
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         TopAppBar(
+            navigationIcon = {
+                IconButton(onClick = { state.back() }) {
+                    Icon(
+                        Icons.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.back),
+                    )
+                }
+            },
             title = { Text(stringResource(R.string.lan_transfer)) },
         )
         Column(

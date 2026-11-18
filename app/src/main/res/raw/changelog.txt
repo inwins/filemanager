@@ -1,3 +1,9 @@
+v1.10.2
+- Added a back button to the LAN transfer screen and fixed bottom navigation bar insets.
+- Fixed HEAD error response bodies and rejected negative Content-Length values.
+- Remote audio metadata now prefers the stream URL for better compatibility.
+- Expanded unit tests for the LAN server, client, discovery, foreground service and audio player (75 tests).
+
 v1.10.1
 - Fixed empty-file uploads, concurrent same-name upload overwrites and stuck upload progress dialogs in LAN transfer.
 - Fixed a path traversal risk in app-to-app download names and downloads now use .part files, so failures leave no partial files.

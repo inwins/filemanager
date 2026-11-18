@@ -30,6 +30,8 @@ class PathsTest {
     fun childDetection() {
         assertTrue(Paths.isSameOrChild("/sdcard", "/sdcard/Download"))
         assertTrue(Paths.isSameOrChild("/sdcard", "/sdcard"))
+        assertTrue(Paths.isSameOrChild("/", "/data"))
+        assertTrue(Paths.isSameOrChild("/sdcard/", "/sdcard/Download"))
         assertFalse(Paths.isSameOrChild("/sdcard", "/sdcard2"))
         assertFalse(Paths.isSameOrChild("/sdcard", "/other"))
     }

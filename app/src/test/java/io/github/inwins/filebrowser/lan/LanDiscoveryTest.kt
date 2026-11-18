@@ -1,7 +1,11 @@
 package io.github.inwins.filebrowser.lan
 
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LanDiscoveryTest {
@@ -33,5 +37,32 @@ class LanDiscoveryTest {
                 "192.168.1.20",
             )
         )
+    }
+
+    @Test
+    fun scanReceivesPeerDatagrams() {
+        val payload = """{"app":"io.github.inwins.filebrowser","id":"integration","name":"Peer","port":18800,"token":"token"}"""
+            .toByteArray()
+        val sender = DatagramSocket()
+        val thread = Thread {
+            try {
+                val target = InetAddress.getByName("127.0.0.1")
+                repeat(10) {
+                    runCatching {
+                        sender.send(DatagramPacket(payload, payload.size, target, LanDiscovery.DISCOVERY_PORT))
+                    }
+                    Thread.sleep(80)
+                }
+            } finally {
+                runCatching { sender.close() }
+            }
+        }
+        thread.start()
+        try {
+            val peers = LanDiscovery.scan(2_000)
+            assertTrue(peers.any { it.id == "integration" && it.host == "127.0.0.1" })
+        } finally {
+            thread.join(2_000)
+        }
     }
 }

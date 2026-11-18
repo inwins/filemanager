@@ -275,14 +275,14 @@ class AudioPlayer(
         artist = ""
         album = ""
         artwork = null
-        if (item.path.isBlank() && item.streamUrl.isNullOrBlank()) return
+        if (item.streamUrl.isNullOrBlank() && item.path.isBlank()) return
         metadataJob = scope.launch(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
             try {
-                if (item.path.isNotBlank()) {
-                    retriever.setDataSource(item.path)
-                } else {
+                if (!item.streamUrl.isNullOrBlank()) {
                     retriever.setDataSource(item.streamUrl, emptyMap())
+                } else {
+                    retriever.setDataSource(item.path)
                 }
                 val metaTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
                 val metaArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)

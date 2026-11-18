@@ -33,6 +33,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 object LanTransferServer {
+    @Volatile
     private var serverSocket: ServerSocket? = null
     private var acceptThread: Thread? = null
     private var discoveryThread: Thread? = null
@@ -98,24 +99,30 @@ object LanTransferServer {
         running = true
         startDiscovery()
         acceptThread = Thread({
-            while (!server.isClosed) {
-                try {
-                    val client = server.accept()
-                    clients.add(client)
-                    Thread {
-                        try {
-                            handle(client)
-                        } catch (_: Exception) {
-                        } finally {
-                            clients.remove(client)
-                            runCatching { client.close() }
+            try {
+                while (!server.isClosed) {
+                    try {
+                        val client = server.accept()
+                        clients.add(client)
+                        Thread {
+                            try {
+                                handle(client)
+                            } catch (_: Exception) {
+                            } finally {
+                                clients.remove(client)
+                                runCatching { client.close() }
+                            }
+                        }.apply {
+                            isDaemon = true
+                            start()
                         }
-                    }.apply {
-                        isDaemon = true
-                        start()
+                    } catch (_: IOException) {
+                        break
                     }
-                } catch (_: IOException) {
-                    break
+                }
+            } finally {
+                if (serverSocket === server && !server.isClosed) {
+                    running = false
                 }
             }
         }, "lan-transfer-accept").apply {
@@ -233,6 +240,7 @@ object LanTransferServer {
         val parts = requestLine.split(' ')
         if (parts.size < 2) return
         val method = parts[0].uppercase()
+        val headOnly = method == "HEAD"
         val target = parts[1]
         var contentLength = 0L
         var hasContentLength = false
@@ -248,8 +256,8 @@ object LanTransferServer {
             when (name) {
                 "content-length" -> {
                     val parsed = value.toLongOrNull()
-                    if (parsed != null) {
-                        contentLength = parsed.coerceAtLeast(0L)
+                    if (parsed != null && parsed >= 0) {
+                        contentLength = parsed
                         hasContentLength = true
                     }
                 }
@@ -263,12 +271,12 @@ object LanTransferServer {
         }
 
         if (!running) {
-            respondError(output, 503, "Service unavailable")
+            respondError(output, 503, "Service unavailable", headOnly)
             return
         }
         val root = shareRoot
         if (root == null) {
-            respondError(output, 503, "Service unavailable")
+            respondError(output, 503, "Service unavailable", headOnly)
             return
         }
         val decodedTarget = String(
@@ -279,17 +287,17 @@ object LanTransferServer {
         val query = parseQuery(decodedTarget.substringAfter('?', ""))
         val segments = pathPart.trim('/').split('/').filter { it.isNotEmpty() }
         if (segments.isEmpty() || segments.first() != token) {
-            respondError(output, 404, "Not found")
+            respondError(output, 404, "Not found", headOnly)
             return
         }
         val route = "/" + segments.drop(1).joinToString("/")
         when {
             method == "GET" || method == "HEAD" -> when (route) {
-                "/" -> respondHtml(output, method == "HEAD", root)
-                "/api/list" -> handleList(output, root, query, method == "HEAD")
-                "/api/download" -> handleDownload(output, root, query, rangeHeader, method == "HEAD")
+                "/" -> respondHtml(output, headOnly, root)
+                "/api/list" -> handleList(output, root, query, headOnly)
+                "/api/download" -> handleDownload(output, root, query, rangeHeader, headOnly)
                 "/favicon.ico" -> respondEmpty(output, 204)
-                else -> respondError(output, 404, "Not found")
+                else -> respondError(output, 404, "Not found", headOnly)
             }
             method == "PUT" && route == "/api/upload" ->
                 handleUpload(input, output, root, query, contentLength, hasContentLength)
@@ -301,11 +309,11 @@ object LanTransferServer {
 
     private fun handleList(output: OutputStream, root: File, query: Map<String, String>, headOnly: Boolean) {
         val dir = LanTransferPaths.resolve(root, query["path"].orEmpty()) ?: run {
-            respondError(output, 403, "Forbidden")
+            respondError(output, 403, "Forbidden", headOnly)
             return
         }
         if (!dir.isDirectory) {
-            respondError(output, 404, "Not found")
+            respondError(output, 404, "Not found", headOnly)
             return
         }
         val files = dir.listFiles()?.sortedWith(
@@ -337,11 +345,11 @@ object LanTransferServer {
         headOnly: Boolean,
     ) {
         val file = LanTransferPaths.resolve(root, query["path"].orEmpty()) ?: run {
-            respondError(output, 403, "Forbidden")
+            respondError(output, 403, "Forbidden", headOnly)
             return
         }
         if (!file.isFile) {
-            respondError(output, 404, "Not found")
+            respondError(output, 404, "Not found", headOnly)
             return
         }
         val total = file.length()
@@ -587,9 +595,14 @@ object LanTransferServer {
         output.flush()
     }
 
-    private fun respondError(output: OutputStream, code: Int, message: String) {
+    private fun respondError(
+        output: OutputStream,
+        code: Int,
+        message: String,
+        headOnly: Boolean = false,
+    ) {
         val body = message.toByteArray(StandardCharsets.UTF_8)
-        respond(output, code, statusText(code), "text/plain; charset=utf-8", body, false)
+        respond(output, code, statusText(code), "text/plain; charset=utf-8", body, headOnly)
     }
 
     private fun statusText(code: Int): String = when (code) {
