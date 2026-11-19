@@ -39,6 +39,37 @@ class LanDiscoveryTest {
         )
     }
 
+
+    @Test
+    fun parsesFallbacksAndRejectsBadFields() {
+        val fallbackName = LanDiscovery.parse(
+            """{"app":"io.github.inwins.filebrowser","id":"abc","name":"","port":65535,"token":"x"}""",
+            "10.0.0.2",
+        )
+        assertEquals("10.0.0.2", fallbackName?.name)
+        assertEquals(65535, fallbackName?.port)
+
+        assertNull(
+            LanDiscovery.parse(
+                """{"app":"io.github.inwins.filebrowser","id":"","port":18800,"token":"x"}""",
+                "10.0.0.2",
+            )
+        )
+        assertNull(
+            LanDiscovery.parse(
+                """{"app":"io.github.inwins.filebrowser","id":"abc","port":70000,"token":"x"}""",
+                "10.0.0.2",
+            )
+        )
+    }
+
+    @Test
+    fun scanReturnsEmptyWhenDiscoveryPortIsBusy() {
+        DatagramSocket(java.net.InetSocketAddress(LanDiscovery.DISCOVERY_PORT)).use {
+            assertTrue(LanDiscovery.scan(200).isEmpty())
+        }
+    }
+
     @Test
     fun scanReceivesPeerDatagrams() {
         val payload = """{"app":"io.github.inwins.filebrowser","id":"integration","name":"Peer","port":18800,"token":"token"}"""

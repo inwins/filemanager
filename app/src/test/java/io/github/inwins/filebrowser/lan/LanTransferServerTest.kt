@@ -104,15 +104,25 @@ class LanTransferServerTest {
             token = LanTransferServer.token,
         )
         val bytes = "app to app".toByteArray()
-        LanClient.upload(peer, "", "互传.txt", bytes.size.toLong(), ByteArrayInputStream(bytes))
+        var uploaded = 0L
+        LanClient.upload(peer, "", "互传.txt", bytes.size.toLong(), ByteArrayInputStream(bytes)) { sent, total ->
+            uploaded = sent
+            assertEquals(bytes.size.toLong(), total)
+        }
+        assertEquals(bytes.size.toLong(), uploaded)
 
         val entries = LanClient.list(peer, "")
         assertEquals(1, entries.size)
         assertEquals("互传.txt", entries.first().name)
 
         val destination = File(temp.root, "received.txt")
-        LanClient.download(peer, entries.first().path, destination)
+        var downloaded = 0L
+        LanClient.download(peer, entries.first().path, destination) { received, total ->
+            downloaded = received
+            assertEquals(bytes.size.toLong(), total)
+        }
         assertEquals("app to app", destination.readText())
+        assertEquals(bytes.size.toLong(), downloaded)
         assertFalse(File(temp.root, "received.txt.part").exists())
 
         LanClient.mkdir(peer, "", "client-dir")
@@ -132,6 +142,11 @@ class LanTransferServerTest {
         assertEquals(200, second.code)
         assertEquals("one", File(root, "dup.txt").readText())
         assertEquals("two", File(root, "dup (1).txt").readText())
+
+        assertEquals(200, request("$base/api/upload?path=&name=plain", "PUT", "p".toByteArray()).code)
+        assertEquals(200, request("$base/api/upload?path=&name=plain", "PUT", "q".toByteArray()).code)
+        assertTrue(File(root, "plain").isFile)
+        assertTrue(File(root, "plain (1)").isFile)
     }
 
     @Test
@@ -199,6 +214,10 @@ class LanTransferServerTest {
         File(root, "empty.txt").writeText("")
         val emptyRange = request("$base/api/download?path=empty.txt", "GET", range = "bytes=0-1")
         assertEquals(416, emptyRange.code)
+        val emptyFull = request("$base/api/download?path=empty.txt", "GET")
+        assertEquals(200, emptyFull.code)
+        assertEquals("", emptyFull.body)
+        assertEquals("0", emptyFull.header("Content-Length"))
 
         val chinese = "中文.txt"
         File(root, chinese).writeText("hello")
@@ -210,6 +229,11 @@ class LanTransferServerTest {
         val directory = request("$base/api/download?path=", "GET")
         assertEquals(404, directory.code)
         assertEquals(404, request("$base/api/list?path=full.txt", "GET").code)
+
+        File(root, "quote\"name.txt").writeText("x")
+        val quoteEncoded = URLEncoder.encode("quote\"name.txt", "UTF-8")
+        val quoted = request("$base/api/download?path=$quoteEncoded", "GET")
+        assertTrue(quoted.header("Content-Disposition")!!.contains("filename=\"quote_name.txt\""))
     }
 
     @Test
@@ -335,6 +359,91 @@ class LanTransferServerTest {
         assertEquals("LanTransfer", LanTransferServer.defaultShareDir(context).name)
     }
 
+
+    @Test
+    fun handlesEdgeCaseRequests() {
+        File(root, "file.txt").writeText("x")
+
+        assertEquals(403, request("$base/api/upload?path=../../&name=x.txt", "PUT", "x".toByteArray()).code)
+        assertEquals(403, request("$base/api/mkdir?path=../../&name=x", "POST").code)
+        assertEquals(404, request("$base/api/upload?path=file.txt&name=x.txt", "PUT", "x".toByteArray()).code)
+        assertEquals(404, request("$base/api/mkdir?path=file.txt&name=x", "POST").code)
+        assertEquals(400, request("$base/api/mkdir?path=&name=../x", "POST").code)
+
+        assertEquals(200, request("$base/api/list?flag", "GET").code)
+        assertEquals(200, request("$base/api/list?path=&&", "GET").code)
+        assertEquals(404, request("$base/api/list?path=%ZZ", "GET").code)
+        assertEquals(400, request("$base/api/upload?path=&name=", "PUT", "x".toByteArray()).code)
+        assertEquals(400, request("$base/api/mkdir?path=&name=", "POST").code)
+        assertEquals(405, request("$base/unknown", "PUT").code)
+        assertEquals(405, request("$base/unknown", "POST").code)
+
+        File(root, "unknown.xyz").writeText("abc")
+        val unknownMime = request("$base/api/download?path=unknown.xyz", "GET")
+        assertEquals(200, unknownMime.code)
+        assertEquals("application/octet-stream", unknownMime.header("Content-Type"))
+
+        val token = LanTransferServer.token
+        val longHeader = "X-Long: " + "a".repeat(9_000) + "\r\n"
+        val longResponse = rawRequest("GET /$token/api/list?path= HTTP/1.1\r\nHost: test\r\n$longHeader\r\n")
+        assertTrue(longResponse.startsWith("HTTP/1.1 200"))
+
+        assertTrue(rawRequest("BAD\r\n\r\n").isEmpty())
+        assertTrue(rawRequest("\r\n\r\n").isEmpty())
+        assertTrue(rawRequest("GET / HTTP/1.1\r\nHost: test\r\n\r\n").startsWith("HTTP/1.1 404"))
+
+        val noColonHeader = rawRequest(
+            "GET /$token/api/list?path= HTTP/1.1\r\nHost: test\r\nBadHeader\r\n\r\n"
+        )
+        assertTrue(noColonHeader.startsWith("HTTP/1.1 200"))
+
+        val otherExpect = rawRequest(
+            "GET /$token/api/list?path= HTTP/1.1\r\nHost: test\r\nExpect: something\r\n\r\n"
+        )
+        assertTrue(otherExpect.startsWith("HTTP/1.1 200"))
+
+        Socket("127.0.0.1", LanTransferServer.port).use { socket ->
+            socket.getOutputStream().flush()
+        }
+        Thread.sleep(100)
+
+        val expect = rawRequest(
+            "PUT /$token/api/upload?path=&name=expect.txt HTTP/1.1\r\n" +
+                "Host: test\r\nExpect: 100-continue\r\nContent-Length: 1\r\n\r\nx"
+        )
+        assertTrue(expect.contains("100 Continue"))
+        assertTrue(expect.contains("200 OK"))
+        assertTrue(File(root, "expect.txt").isFile)
+
+        val partialResponse = partialUpload(
+            "PUT /$token/api/upload?path=&name=partial.txt HTTP/1.1\r\n" +
+                "Host: test\r\nContent-Length: 10\r\n\r\nabc"
+        )
+        assertTrue(partialResponse.startsWith("HTTP/1.1 500"))
+        assertFalse(File(root, "partial.txt").exists())
+    }
+
+
+    @Test
+    fun statusTextCoversAllCodes() {
+        val expected = mapOf(
+            200 to "OK",
+            204 to "No Content",
+            206 to "Partial Content",
+            400 to "Bad Request",
+            403 to "Forbidden",
+            404 to "Not Found",
+            405 to "Method Not Allowed",
+            409 to "Conflict",
+            411 to "Length Required",
+            416 to "Range Not Satisfiable",
+            500 to "Internal Server Error",
+            503 to "Service Unavailable",
+        )
+        expected.forEach { (code, text) -> assertEquals(text, LanTransferServer.statusText(code)) }
+        assertEquals("Error", LanTransferServer.statusText(999))
+    }
+
     @Test
     fun stopClosesServer() {
         LanTransferServer.stop()
@@ -358,6 +467,18 @@ class LanTransferServerTest {
                 write(text.toByteArray(Charsets.ISO_8859_1))
                 flush()
             }
+            return socket.getInputStream().bufferedReader(Charsets.ISO_8859_1).readText()
+        }
+    }
+
+    private fun partialUpload(text: String): String {
+        Socket("127.0.0.1", LanTransferServer.port).use { socket ->
+            socket.soTimeout = 5000
+            socket.getOutputStream().apply {
+                write(text.toByteArray(Charsets.ISO_8859_1))
+                flush()
+            }
+            socket.shutdownOutput()
             return socket.getInputStream().bufferedReader(Charsets.ISO_8859_1).readText()
         }
     }

@@ -1,3 +1,9 @@
+v1.10.3
+- Added a layered test strategy: pure unit tests, HTTP black-box contracts, service lifecycle, UDP discovery and Robolectric component tests.
+- Added JaCoCo reports and gates: 100% line coverage for pure path/model logic, and at least 95% line / 80% branch coverage for the LAN module.
+- Expanded LAN server, client, discovery, foreground service and audio player tests to 93 tests.
+- See TESTING.md for the test matrix and coverage scope.
+
 v1.10.2
 - Added a back button to the LAN transfer screen and fixed bottom navigation bar insets.
 - Fixed HEAD error response bodies and rejected negative Content-Length values.

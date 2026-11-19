@@ -4,11 +4,14 @@ import io.github.inwins.filebrowser.util.Paths
 import java.io.File
 
 object LanTransferPaths {
-    fun resolve(root: File, relative: String): File? {
+    fun resolve(root: File, relative: String): File? =
+        resolve(root, relative) { file -> runCatching { file.canonicalFile }.getOrNull() }
+
+    internal fun resolve(root: File, relative: String, canonicalize: (File) -> File?): File? {
         val clean = relative.trim('/')
         if (clean.contains('\u0000')) return null
         val candidate = if (clean.isEmpty()) root else File(root, clean)
-        val canonical = runCatching { candidate.canonicalFile }.getOrNull() ?: return null
+        val canonical = canonicalize(candidate) ?: return null
         if (!Paths.isSameOrChild(root.path, canonical.path)) return null
         return canonical
     }

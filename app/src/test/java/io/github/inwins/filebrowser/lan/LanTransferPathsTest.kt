@@ -66,4 +66,10 @@ class LanTransferPathsTest {
         val file = File(root, "a\\b.txt").apply { writeText("ok") }
         assertEquals(file.canonicalFile, LanTransferPaths.resolve(root, "a\\b.txt"))
     }
+
+    @Test
+    fun rejectsFilesWhenCanonicalizationFails() {
+        val root = temp.newFolder("share")
+        assertNull(LanTransferPaths.resolve(root, "file.txt") { null })
+    }
 }

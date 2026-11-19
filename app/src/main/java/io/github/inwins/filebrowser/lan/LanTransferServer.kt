@@ -355,7 +355,7 @@ object LanTransferServer {
         val total = file.length()
         if (total == 0L && rangeHeader != null) {
             val header = buildString {
-                append("HTTP/1.1 416 Range Not Satisfiable\r\n")
+                append("HTTP/1.1 416 ").append(statusText(416)).append("\r\n")
                 append("Content-Range: bytes */0\r\n")
                 append("Content-Length: 0\r\n")
                 append("Connection: close\r\n\r\n")
@@ -367,7 +367,7 @@ object LanTransferServer {
         val range = if (total > 0) {
             StreamRangeParser.parse(rangeHeader, total) ?: run {
                 val header = buildString {
-                    append("HTTP/1.1 416 Range Not Satisfiable\r\n")
+                    append("HTTP/1.1 416 ").append(statusText(416)).append("\r\n")
                     append("Content-Range: bytes */").append(total).append("\r\n")
                     append("Content-Length: 0\r\n")
                     append("Connection: close\r\n\r\n")
@@ -381,10 +381,10 @@ object LanTransferServer {
         }
         val start = range?.start ?: 0L
         val length = range?.length ?: total
-        val status = if (rangeHeader != null && range != null) "206 Partial Content" else "200 OK"
+        val statusCode = if (rangeHeader != null && range != null) 206 else 200
         val mime = MimeTypes.fromName(file.name) ?: "application/octet-stream"
         val headers = buildString {
-            append("HTTP/1.1 ").append(status).append("\r\n")
+            append("HTTP/1.1 ").append(statusCode).append(' ').append(statusText(statusCode)).append("\r\n")
             append("Content-Type: ").append(mime).append("\r\n")
             append("Content-Length: ").append(length).append("\r\n")
             append("Accept-Ranges: bytes\r\n")
@@ -501,15 +501,14 @@ object LanTransferServer {
             val base = if (dot > 0) name.substring(0, dot) else name
             val extension = if (dot > 0) name.substring(dot) else ""
             var index = 1
-            while (index < Int.MAX_VALUE) {
+            while (true) {
                 val candidate = File(dir, "$base ($index)$extension")
                 if (candidate.createNewFile()) return candidate
                 index++
             }
-        } catch (_: IOException) {
+        } catch (_: Exception) {
             return null
         }
-        return null
     }
 
     private fun copyExactly(input: InputStream, output: OutputStream, length: Long) {
@@ -605,7 +604,7 @@ object LanTransferServer {
         respond(output, code, statusText(code), "text/plain; charset=utf-8", body, headOnly)
     }
 
-    private fun statusText(code: Int): String = when (code) {
+    internal fun statusText(code: Int): String = when (code) {
         200 -> "OK"
         204 -> "No Content"
         206 -> "Partial Content"

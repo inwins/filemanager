@@ -5,7 +5,7 @@
 GitHub：https://github.com/inwins
 技术栈：Kotlin + Jetpack Compose (Material 3)
 compileSdk 34 / minSdk 26 / targetSdk 34
-当前版本：1.10.2（versionCode 17）
+当前版本：1.10.3（versionCode 18）
 
 界面与交互参考主流文件管理器，使用原创代码实现。依赖统一走
 阿里云 Maven 镜像；如需拉取 GitHub 参考项目，建议使用 gitclone、ghproxy
@@ -166,9 +166,23 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 - LRC 歌词解析、时间轴定位。
 - HTTP Range 请求解析、文件哈希、ZIP 创建/加密/解压。
 - 回收站元数据读写。
-- 共 47 项测试。
+- 局域网互传：路径穿越防护、空文件/并发同名上传、HTTP 200/206/HEAD/416/411、MIME 回退、中文/空格/反斜杠文件名。
+- 局域网客户端：URL 编码、列表容错、上传/下载进度、失败清理。
+- 设备发现：UDP 报文解析、非法报文、端口占用、实际扫描。
+- 前台服务：启动/停止、无 root、STOP action、端口占用、URL 刷新。
+- 音频播放器：流缓存初始化、失败回退和停止清理。
+- 共 93 项测试。
 
 报告：app/build/reports/tests/testDebugUnitTest/index.html
+
+覆盖率报告与门槛：
+
+    /opt/gradle-8.7/bin/gradle jacocoTestReport
+    /opt/gradle-8.7/bin/gradle jacocoPureCoverage jacocoLanCoverage
+
+覆盖率说明见 TESTING.md。
+- 纯路径/模型层行覆盖 100%。
+- 局域网模块行覆盖 ≥95%、分支覆盖 ≥80%。
 
 
 五、构建 Release APK
@@ -253,6 +267,10 @@ compileSdk 34 / minSdk 26 / targetSdk 34
 编译 + 单测：
 
     /opt/gradle-8.7/bin/gradle assembleDebug testDebugUnitTest --console=plain
+
+覆盖率报告 + 门槛：
+
+    /opt/gradle-8.7/bin/gradle jacocoTestReport jacocoPureCoverage jacocoLanCoverage
 
 查看日志：
 
